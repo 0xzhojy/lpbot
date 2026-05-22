@@ -1673,15 +1673,27 @@ function fmtPct(value) {
 
 function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}) {
   if (!pool) return "missing candidate data";
-  const smartWalletCount = Math.max(sw?.in_pool?.length ?? 0, Number(pool.gmgn_smart_wallets ?? 0) || 0);
+  const walletsTracked = sw?.tracked_wallets ?? 0;
+  const smartWalletCount = walletsTracked > 0
+    ? Math.max(sw?.in_pool?.length ?? 0, Number(pool.gmgn_smart_wallets ?? 0) || 0)
+    : null; // null = not configured, skip smart-wallet checks
   const tokenInfo = ti || {};
   const hasNarrative = !!n?.narrative;
   const globalFeesSol = Number(tokenInfo.global_fees_sol ?? pool.gmgn_total_fee_sol);
   const top10Pct = Number(tokenInfo.audit?.top_holders_pct ?? pool.gmgn_token_info_top10_pct ?? pool.gmgn_top10_holder_pct);
   const botPct = Number(tokenInfo.audit?.bot_holders_pct ?? pool.gmgn_bot_degen_pct);
   if (pool.is_wash) return "wash trading was flagged";
-  if (pool.is_rugpull && smartWalletCount === 0) return "rugpull risk was flagged and no smart wallets offset it";
-  if (pool.is_pvp && smartWalletCount === 0) return "PVP symbol conflict and no smart-wallet confirmation";
+  // Only enforce smart-wallet confirmation for rugpull/pvp when wallets ARE configured
+  if (pool.is_rugpull && (smartWalletCount === null || smartWalletCount === 0)) {
+    return smartWalletCount === null
+      ? "rugpull risk was flagged — add smart wallets to override, or skip this pool"
+      : "rugpull risk was flagged and no smart wallets offset it";
+  }
+  if (pool.is_pvp && (smartWalletCount === null || smartWalletCount === 0)) {
+    return smartWalletCount === null
+      ? "PVP symbol conflict — no smart wallets configured to confirm"
+      : "PVP symbol conflict and no smart-wallet confirmation";
+  }
   if (Number.isFinite(globalFeesSol) && globalFeesSol < config.screening.minTokenFeesSol) {
     return `token fees ${globalFeesSol} SOL below minimum ${config.screening.minTokenFeesSol} SOL`;
   }
@@ -1691,7 +1703,10 @@ function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}) {
   if (Number.isFinite(botPct) && botPct > config.screening.maxBotHoldersPct) {
     return `bot holders ${botPct}% above maximum ${config.screening.maxBotHoldersPct}%`;
   }
-  if (!hasNarrative && smartWalletCount === 0) return "only candidate has no narrative and no smart-wallet confirmation";
+  // Only apply narrative+smart-wallet combined skip when wallets ARE configured and missing both
+  if (!hasNarrative && smartWalletCount !== null && smartWalletCount === 0) {
+    return "only candidate has no narrative and no smart-wallet confirmation";
+  }
   return null;
 }
 
