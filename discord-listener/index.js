@@ -115,17 +115,38 @@ client.on("ready", () => {
     });
     console.log(`Channels: ${channelNames.join(", ")}`);
   }
-  console.log(`\nStreaming messages... (Ctrl+C to stop)\n`);
+  
+  console.log(`\nMengambil riwayat chat (20 pesan terakhir)...`);
+  (async () => {
+    for (const id of CHANNEL_IDS) {
+      try {
+        const channel = await client.channels.fetch(id);
+        if (channel && channel.isText) {
+          const messages = await channel.messages.fetch({ limit: 20 });
+          console.log(`  Mendapatkan ${messages.size} pesan dari #${channel.name}`);
+          // Proses dari yang terlama ke terbaru
+          const sorted = [...messages.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+          for (const msg of sorted) {
+            await processMessage(msg);
+          }
+        }
+      } catch (e) {
+        console.warn(`  Gagal mengambil riwayat untuk channel ${id}:`, e.message);
+      }
+    }
+    console.log(`\nStreaming pesan baru... (Ctrl+C to stop)\n`);
+  })();
 });
 
-client.on("messageCreate", async (message) => {
+async function processMessage(message) {
   // Only process messages from configured guild + channels
   if (message.guildId !== GUILD_ID) return;
   if (!CHANNEL_IDS.includes(message.channelId)) return;
   // Skip own messages
   if (message.author?.id === client.user?.id) return;
-  // Only process messages from Metlex Pool Bot
-  if (message.author?.username !== "Metlex Pool Bot") return;
+  
+  // Filter pengirim dinonaktifkan agar tidak memblokir bot Metlex DLMM
+  // if (message.author?.username !== "Metlex Pool Bot") return;
 
   const content = message.content || "";
   const embeds = message.embeds?.map(e => `${e.title || ""} ${e.description || ""}`).join(" ") || "";
@@ -143,6 +164,10 @@ client.on("messageCreate", async (message) => {
   for (const addr of unique) {
     await processAddress(addr, message);
   }
+}
+
+client.on("messageCreate", async (message) => {
+  await processMessage(message);
 });
 
 client.on("error", (err) => {
