@@ -549,7 +549,10 @@ export async function deployPosition({
     );
   }
   if (isSingleSidedSol) {
-    activeBinsAbove = 0;
+    // Apply binsAboveBuffer to extend the tracked range upward without depositing token X.
+    // This raises upper_bin so OOR-right management rules don't fire too early.
+    const buffer = Math.max(0, Math.round(Number(config.strategy.binsAboveBuffer ?? 0)));
+    activeBinsAbove = buffer;
   }
   activeBinsBelow = Number(activeBinsBelow);
   activeBinsAbove = Number(activeBinsAbove);
@@ -590,14 +593,19 @@ export async function deployPosition({
 
   const isWideRange = totalBins > 69;
   const minBinId = activeBin.binId - activeBinsBelow;
-  const maxBinId = isSingleSidedSol ? activeBin.binId : activeBin.binId + activeBinsAbove;
+  // For single-side SOL: SDK active bin is the liquidity ceiling, but we extend maxBinId
+  // upward by binsAboveBuffer so upper_bin tracking is higher (OOR buffer).
+  // The relay/SDK still receives the actual SDK upper bin (activeBin.binId) for liquidity placement;
+  // maxBinId here is only used for range recording and management rules.
+  const liquidityMaxBinId = activeBin.binId; // actual liquidity ceiling for SDK
+  const maxBinId = isSingleSidedSol ? activeBin.binId + activeBinsAbove : activeBin.binId + activeBinsAbove;
 
   if (minBinId > maxBinId) {
     throw new Error(`Invalid bin range: ${minBinId} -> ${maxBinId}`);
   }
-  if (isSingleSidedSol && maxBinId !== activeBin.binId) {
+  if (isSingleSidedSol && liquidityMaxBinId !== activeBin.binId) {
     throw new Error(
-      `Single-side SOL deploy must end at the SDK active bin. Expected ${activeBin.binId}, got ${maxBinId}.`,
+      `Single-side SOL deploy must end at the SDK active bin. Expected ${activeBin.binId}, got ${liquidityMaxBinId}.`,
     );
   }
 
@@ -634,7 +642,7 @@ export async function deployPosition({
         headers: getAgentMeridianHeaders({ json: true }),
         body: JSON.stringify({
           agentId: getAgentIdForRequests(),
-          idempotencyKey: `deploy:${pool_address}:${minBinId}:${maxBinId}:${finalAmountY}:${finalAmountX}`,
+          idempotencyKey: `deploy:${pool_address}:${minBinId}:${liquidityMaxBinId}:${finalAmountY}:${finalAmountX}`,
           poolId: pool_address,
           owner: wallet.publicKey.toString(),
           strategy: activeStrategy === "spot" ? "Spot" : "BidAsk",
@@ -643,7 +651,7 @@ export async function deployPosition({
           amountX: finalAmountX,
           percentX: finalAmountX > 0 && finalAmountY > 0 ? 0.5 : 0,
           fromBinId: minBinId,
-          toBinId: maxBinId,
+          toBinId: liquidityMaxBinId, // actual liquidity ceiling; maxBinId may be extended by binsAboveBuffer for tracking only
           slippageBps: 500,
           provider: "JUPITER_ULTRA",
         }),
@@ -778,7 +786,7 @@ export async function deployPosition({
       // Phase 1: Create empty position (may be multiple txs)
       const createTxs = await pool.createExtendedEmptyPosition(
         minBinId,
-        maxBinId,
+        liquidityMaxBinId, // SDK must receive actual liquidity ceiling, not extended tracking range
         newPosition.publicKey,
         wallet.publicKey,
       );
@@ -796,7 +804,7 @@ export async function deployPosition({
         user: wallet.publicKey,
         totalXAmount: totalXLamports,
         totalYAmount: totalYLamports,
-        strategy: { minBinId, maxBinId, strategyType },
+        strategy: { minBinId, maxBinId: liquidityMaxBinId, strategyType },
         slippage: 10, // 10%
       });
       const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
@@ -812,7 +820,7 @@ export async function deployPosition({
         user: wallet.publicKey,
         totalXAmount: totalXLamports,
         totalYAmount: totalYLamports,
-        strategy: { maxBinId, minBinId, strategyType },
+        strategy: { maxBinId: liquidityMaxBinId, minBinId, strategyType }, // SDK uses actual liquidity range
         slippage: 1000, // 10% in bps
       });
       const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]);

@@ -67,18 +67,21 @@ function evaluatePreset(side, preset, payload) {
     close <= level;
 
   switch (preset) {
-    case "supertrend_break":
-      return side === "entry"
-        ? {
-            confirmed: summary.supertrendBreakUp || (isBullish && close != null && summary.supertrendValue != null && close >= summary.supertrendValue),
-            reason: summary.supertrendBreakUp ? "Supertrend flipped bullish" : "Price is above bullish Supertrend",
-            signal: summary,
-          }
-        : {
-            confirmed: summary.supertrendBreakDown || (isBearish && close != null && summary.supertrendValue != null && close <= summary.supertrendValue),
-            reason: summary.supertrendBreakDown ? "Supertrend flipped bearish" : "Price is below bearish Supertrend",
-            signal: summary,
-          };
+    case "supertrend_break": {
+      if (side === "entry") {
+        const confirmed = summary.supertrendBreakUp || (isBullish && close != null && summary.supertrendValue != null && close >= summary.supertrendValue);
+        let reason = "Supertrend is bearish";
+        if (confirmed) reason = summary.supertrendBreakUp ? "Supertrend flipped bullish" : "Price is above bullish Supertrend";
+        else if (isBullish) reason = "Price is below bullish Supertrend";
+        return { confirmed, reason, signal: summary };
+      } else {
+        const confirmed = summary.supertrendBreakDown || (isBearish && close != null && summary.supertrendValue != null && close <= summary.supertrendValue);
+        let reason = "Supertrend is bullish";
+        if (confirmed) reason = summary.supertrendBreakDown ? "Supertrend flipped bearish" : "Price is below bearish Supertrend";
+        else if (isBearish) reason = "Price is above bearish Supertrend";
+        return { confirmed, reason, signal: summary };
+      }
+    }
     case "rsi_reversal":
       return side === "entry"
         ? {
@@ -119,24 +122,27 @@ function evaluatePreset(side, preset, payload) {
             reason: `RSI overbought with bearish Supertrend context`,
             signal: summary,
           };
-    case "supertrend_or_rsi":
-      return side === "entry"
-        ? {
-            confirmed:
-              summary.supertrendBreakUp ||
-              (isBullish && close != null && summary.supertrendValue != null && close >= summary.supertrendValue) ||
-              (rsi != null && rsi <= oversold),
-            reason: "Supertrend bullish confirmation or RSI oversold",
-            signal: summary,
-          }
-        : {
-            confirmed:
-              summary.supertrendBreakDown ||
-              (isBearish && close != null && summary.supertrendValue != null && close <= summary.supertrendValue) ||
-              (rsi != null && rsi >= overbought),
-            reason: "Supertrend bearish confirmation or RSI overbought",
-            signal: summary,
-          };
+    case "supertrend_or_rsi": {
+      if (side === "entry") {
+        const stBullish = summary.supertrendBreakUp || (isBullish && close != null && summary.supertrendValue != null && close >= summary.supertrendValue);
+        const rsiOversold = rsi != null && rsi <= oversold;
+        const confirmed = stBullish || rsiOversold;
+        return {
+          confirmed,
+          reason: confirmed ? "Supertrend bullish or RSI oversold" : `Supertrend bearish & RSI ${rsi ?? "n/a"} > ${oversold}`,
+          signal: summary,
+        };
+      } else {
+        const stBearish = summary.supertrendBreakDown || (isBearish && close != null && summary.supertrendValue != null && close <= summary.supertrendValue);
+        const rsiOverbought = rsi != null && rsi >= overbought;
+        const confirmed = stBearish || rsiOverbought;
+        return {
+          confirmed,
+          reason: confirmed ? "Supertrend bearish or RSI overbought" : `Supertrend bullish & RSI ${rsi ?? "n/a"} < ${overbought}`,
+          signal: summary,
+        };
+      }
+    }
     case "bb_plus_rsi":
       return side === "entry"
         ? {
