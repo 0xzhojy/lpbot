@@ -424,7 +424,11 @@ export async function discoverPools({
   const thresholdedRawPools = rawPools.filter((pool) => {
     const reason = getRawPoolScreeningRejectReason(pool, s);
     if (!reason) return true;
-    filteredExamples.push({ name: pool.name || pool.pool_address || "unknown pool", reason });
+    filteredExamples.push({ 
+      name: pool.name || pool.pool_address || "unknown pool", 
+      reason, 
+      mint: pool.base?.mint || pool.token_x?.address || null 
+    });
     if (pool.discord_signal) log("screening", `Discord signal filtered: ${pool.name || pool.pool_address} — ${reason}`);
     return false;
   });
@@ -801,5 +805,6 @@ function pushFilteredReason(list, pool, reason) {
   list.push({
     name: pool.name || `${pool.base?.symbol || "?"}-${pool.quote?.symbol || "?"}`,
     reason,
+    mint: pool.base?.mint || pool.token_x?.address || null
   });
 }

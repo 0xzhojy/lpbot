@@ -207,17 +207,17 @@ export async function runManagementCycle({ silent = false } = {}) {
   const screeningCooldownMs = 5 * 60 * 1000;
 
   try {
-    if (!silent && telegramEnabled()) {
-      liveMessage = await createLiveMessage("🔄 Management Cycle", "Evaluating positions...");
-    }
     const livePositions = await getMyPositions({ force: true }).catch(() => null);
     positions = livePositions?.positions || [];
 
     if (positions.length === 0) {
       log("cron", "No open positions — triggering screening cycle");
-      mgmtReport = "No open positions. Triggering screening cycle.";
       runScreeningCycle().catch((e) => log("cron_error", `Triggered screening failed: ${e.message}`));
-      return mgmtReport;
+      return null;
+    }
+
+    if (!silent && telegramEnabled()) {
+      liveMessage = await createLiveMessage("🔄 Management Cycle", "Evaluating positions...");
     }
 
     // Snapshot + load pool memory
@@ -468,19 +468,19 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const launchpad = ti?.launchpad ?? null;
       if (launchpad && config.screening.allowedLaunchpads?.length > 0 && !config.screening.allowedLaunchpads.includes(launchpad)) {
         log("screening", `Skipping ${pool.name} — launchpad ${launchpad} not in allow-list`);
-        filteredOut.push({ name: pool.name, reason: `launchpad ${launchpad} not in allow-list` });
+        filteredOut.push({ name: pool.name, reason: `launchpad ${launchpad} not in allow-list`, mint: pool.base?.mint });
         return false;
       }
       if (launchpad && config.screening.blockedLaunchpads.includes(launchpad)) {
         log("screening", `Skipping ${pool.name} — blocked launchpad (${launchpad})`);
-        filteredOut.push({ name: pool.name, reason: `blocked launchpad (${launchpad})` });
+        filteredOut.push({ name: pool.name, reason: `blocked launchpad (${launchpad})`, mint: pool.base?.mint });
         return false;
       }
       const botPct = ti?.audit?.bot_holders_pct;
       const maxBotHoldersPct = config.screening.maxBotHoldersPct;
       if (botPct != null && maxBotHoldersPct != null && botPct > maxBotHoldersPct) {
         log("screening", `Bot-holder filter: dropped ${pool.name} — bots ${botPct}% > ${maxBotHoldersPct}%`);
-        filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% > ${maxBotHoldersPct}%` });
+        filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% > ${maxBotHoldersPct}%`, mint: pool.base?.mint });
         return false;
       }
       return true;
@@ -488,8 +488,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     if (passing.length === 0) {
       const combined = filteredOut.length > 0 ? filteredOut : earlyFilteredExamples;
+      const formatMint = (m) => m && m.length >= 7 ? `${m.slice(0, 4)}...${m.slice(-3)}` : "unknown";
       const combinedExamples = combined.slice(0, 3)
-        .map((entry) => `- ${entry.name}: ${entry.reason}`)
+        .map((entry, idx) => `${idx + 1}. ${entry.name} (${formatMint(entry.mint)}): ${entry.reason}`)
         .join("\n");
       screenReport = combinedExamples
         ? `No candidates available.\nFiltered examples:\n${combinedExamples}`
@@ -520,7 +521,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           `Only one candidate survived filtering, but it was not worth deploying: ${skipReason}.`,
           "",
           "REJECTED",
-          `- ${candidateName}: ${skipReason}`,
+          `1. ${candidateName} (${passing[0].pool?.base?.mint && passing[0].pool.base.mint.length >= 7 ? `${passing[0].pool.base.mint.slice(0, 4)}...${passing[0].pool.base.mint.slice(-3)}` : "unknown"}): ${skipReason}`,
         ].join("\n");
         appendDecision({
           type: "no_deploy",
@@ -1661,12 +1662,30 @@ async function telegramHandler(msg) {
   let liveMessage = null;
   try {
     log("telegram", `Incoming: ${text}`);
+    let promptText = text;
     const hasCloseIntent = /\bclose\b|\bsell\b|\bexit\b|\bwithdraw\b/i.test(text);
     const isDeployRequest = !hasCloseIntent && /\bdeploy\b|\bopen position\b|\blp into\b|\badd liquidity\b/i.test(text);
-    const agentRole = isDeployRequest ? "SCREENER" : "GENERAL";
+    let agentRole = isDeployRequest ? "SCREENER" : "GENERAL";
+
+    if (text.startsWith("/learn")) {
+      const parts = text.split(" ");
+      const poolArg = parts[1] || null;
+      let poolsToStudy = [];
+      if (poolArg) {
+        poolsToStudy = [{ pool: poolArg, name: poolArg }];
+      } else {
+        const { candidates } = await getTopCandidates({ limit: 10 });
+        if (!candidates.length) throw new Error("No eligible pools found to study.");
+        poolsToStudy = candidates.map((c) => ({ pool: c.pool, name: c.name }));
+      }
+      const poolList = poolsToStudy.map((p, i) => `${i + 1}. ${p.name} (${p.pool})`).join("\n");
+      promptText = `Study top LPers across these ${poolsToStudy.length} pools by calling study_top_lpers for each:\n${poolList}\n\nInstructions:\n1. Call study_top_lpers for each pool in the list.\n2. If the tool returns a rugpull or wash trading warning, skip learning from it.\n3. Identify consistently profitable patterns.\n4. Summarize what you learned.\n5. IF you found a strong, actionable pattern that is not already in your lessons, call add_lesson to save it.`;
+      agentRole = "GENERAL";
+    }
+
     const agentModel = agentRole === "SCREENER" ? config.llm.screeningModel : config.llm.generalModel;
     liveMessage = await createLiveMessage("🤖 Live Update", `Request: ${text.slice(0, 240)}`);
-    const { content } = await agentLoop(text, config.llm.maxSteps, sessionHistory, agentRole, agentModel, null, {
+    const { content } = await agentLoop(promptText, config.llm.maxSteps, sessionHistory, agentRole, agentModel, null, {
       interactive: true,
       onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
       onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },

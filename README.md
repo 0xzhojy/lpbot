@@ -8,6 +8,15 @@ Meridian runs continuous screening and management cycles, deploying capital into
 
 ---
 
+> **Forked from [yunus-0x/meridian](https://github.com/yunus-0x/meridian) (stable branch)**
+> 
+> **Changelog:**
+> - Fix `undefined` bug in deploy console logs
+> - Add target fee (low yield exit logic)
+> - Remove hardcode `minBinStep` & `maxBinStep` (now uses config dynamically)
+
+---
+
 ## What it does
 
 - **Screens pools** — scans Meteora DLMM pools against configurable thresholds (fee/TVL ratio, organic score, holder count, mcap, bin step) and surfaces high-quality opportunities
