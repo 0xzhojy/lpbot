@@ -194,7 +194,11 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           volatility: { type: "number", description: "Pool volatility at deploy time, sourced from max(screening timeframe, 30m)" },
           fee_tvl_ratio: { type: "number", description: "fee/TVL ratio at deploy time" },
           organic_score: { type: "number", description: "Base token organic score at deploy time" },
-          initial_value_usd: { type: "number", description: "Estimated USD value being deployed" }
+          initial_value_usd: { type: "number", description: "Estimated USD value being deployed" },
+          indicator_confirmation: {
+            type: "object",
+            description: "The indicator confirmation object returned by get_top_candidates for this pool. Pass it exactly as received."
+          }
         },
         required: ["pool_address"]
       }

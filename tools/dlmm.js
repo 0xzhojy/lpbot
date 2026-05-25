@@ -29,6 +29,7 @@ import { getWalletBalances, normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
+import { confirmIndicatorPreset } from "./chart-indicators.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -476,6 +477,7 @@ export async function deployPosition({
   fee_tvl_ratio,
   organic_score,
   initial_value_usd,
+  indicator_confirmation,
 }) {
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
@@ -718,6 +720,7 @@ export async function deployPosition({
           amount_x: finalAmountX,
           active_bin: activeBin.binId,
           initial_value_usd: resolvedInitialValueUsd,
+          indicator_confirmation: indicator_confirmation,
           signal_snapshot: signalSnapshot,
         });
       }
@@ -733,6 +736,7 @@ export async function deployPosition({
         risks: [
           normalizedVolatility != null ? `volatility ${normalizedVolatility}` : null,
           fee_tvl_ratio != null ? `fee/TVL ${fee_tvl_ratio}%` : null,
+          indicator_confirmation ? `indicator: ${indicator_confirmation.preset} (${indicator_confirmation.confirmed ? "confirmed" : "unconfirmed"})` : null,
         ].filter(Boolean),
         metrics: {
           amount_sol: finalAmountY,
@@ -856,6 +860,7 @@ export async function deployPosition({
       amount_x: finalAmountX,
       active_bin: activeBin.binId,
       initial_value_usd: resolvedInitialValueUsd,
+      indicator_confirmation: indicator_confirmation,
       signal_snapshot: signalSnapshot,
     });
 
@@ -870,6 +875,7 @@ export async function deployPosition({
       risks: [
         normalizedVolatility != null ? `volatility ${normalizedVolatility}` : null,
         fee_tvl_ratio != null ? `fee/TVL ${fee_tvl_ratio}%` : null,
+        indicator_confirmation ? `indicator: ${indicator_confirmation.preset} (${indicator_confirmation.confirmed ? "confirmed" : "unconfirmed"})` : null,
       ].filter(Boolean),
       metrics: {
         amount_sol: finalAmountY,
