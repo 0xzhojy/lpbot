@@ -129,7 +129,7 @@ export const config = {
     maxBinsBelow: strategyMaxBinsBelow,
     defaultBinsBelow: strategyDefaultBinsBelow,
     binsAboveBuffer: u.binsAboveBuffer != null ? Math.max(0, Math.round(Number(u.binsAboveBuffer))) : 0,
-    // ^ extends maxBinId upward at deploy time (no token X deposited).
+    // ^ management-only right-side buffer for single-side SOL (no token X deposited).
     // Makes upper_bin higher so OOR-right rules don't fire too early.
     // E.g. binsAboveBuffer=10 means price must go 10 bins above deploy point before OOR triggers.
   },

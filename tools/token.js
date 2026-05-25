@@ -89,11 +89,20 @@ export async function getTokenInfo({ query }) {
  * Fetches top 100 holders — caller decides how many to display.
  */
 export async function getTokenHolders({ mint, limit = 20 }) {
-  // Fetch holders and total supply in parallel
-  const [holdersRes, tokenRes] = await Promise.all([
+  const { getAdvancedInfo, getClusterList } = await import("./okx.js");
+  const { listSmartWallets } = await import("../smart-wallets.js");
+  const { wallets: smartWallets } = listSmartWallets();
+  const addresses = smartWallets.length > 0 ? smartWallets.map((w) => w.address).join(",") : null;
+
+  // Fetch holders, token info, OKX data, and smart wallet positions in parallel
+  const [holdersRes, tokenRes, advancedData, clusterList, kwRes] = await Promise.all([
     fetch(`${DATAPI_BASE}/holders/${mint}?limit=100`),
     fetch(`${DATAPI_BASE}/assets/search?query=${mint}`),
+    getAdvancedInfo(mint).catch(() => null),
+    getClusterList(mint).catch(() => []),
+    addresses ? fetch(`${DATAPI_BASE}/holders/${mint}?addresses=${addresses}`).catch(() => null) : Promise.resolve(null)
   ]);
+
   if (!holdersRes.ok) throw new Error(`Holders API error: ${holdersRes.status}`);
   const data = await holdersRes.json();
   const tokenData = tokenRes.ok ? await tokenRes.json() : null;
@@ -124,25 +133,11 @@ export async function getTokenHolders({ mint, limit = 20 }) {
   const realHolders = mapped.filter((h) => !h.is_pool);
   const top10Pct = realHolders.slice(0, 10).reduce((s, h) => s + (Number(h.pct) || 0), 0);
 
-  // ─── Bundle / Cluster Analysis (OKX) ─────────────────────────
-  const { getAdvancedInfo, getClusterList } = await import("./okx.js");
-  const [advancedData, clusterList] = await Promise.all([
-    getAdvancedInfo(mint).catch(() => null),
-    getClusterList(mint).catch(() => []),
-  ]);
-
   // ─── Smart Wallet / KOL Cross-reference ──────────────────────
-  // Use targeted holders endpoint — only returns matching wallets, no noise
-  const { listSmartWallets } = await import("../smart-wallets.js");
-  const { wallets: smartWallets } = listSmartWallets();
   let smartWalletsHolding = [];
 
-  if (smartWallets.length > 0) {
-    const addresses = smartWallets.map((w) => w.address).join(",");
-    const kwRes = await fetch(
-      `${DATAPI_BASE}/holders/${mint}?addresses=${addresses}`
-    ).catch(() => null);
-    const kwData = kwRes?.ok ? await kwRes.json() : null;
+  if (smartWallets.length > 0 && kwRes?.ok) {
+    const kwData = await kwRes.json();
     const kwHolders = Array.isArray(kwData) ? kwData : (kwData?.holders || kwData?.data || []);
 
     const smartWalletMap = new Map(smartWallets.map((w) => [w.address, w]));

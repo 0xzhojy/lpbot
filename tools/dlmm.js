@@ -1240,18 +1240,32 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
         const tracked = getTrackedPosition(positionAddress);
         const isOOR = pool.outOfRange || pool.positionsOutOfRange?.includes(positionAddress);
 
-        if (isOOR) markOutOfRange(positionAddress);
-        else markInRange(positionAddress);
-
         // Bin data: from supplemental PnL call (OOR) or tracked state (in-range)
         const binData = binDataByPool[pool.poolAddress]?.[positionAddress];
         if (!binData) {
           log("positions_warn", `PnL API missing data for ${positionAddress.slice(0, 8)} in pool ${pool.poolAddress.slice(0, 8)} — using portfolio only for open-position discovery`);
         }
         const lowerBin  = binData?.lowerBinId      ?? tracked?.bin_range?.min ?? null;
-        const upperBin  = binData?.upperBinId      ?? tracked?.bin_range?.max ?? null;
+        const rawUpperBin = binData?.upperBinId ?? null;
+        const trackedUpperBin = tracked?.bin_range?.max ?? null;
+        const upperBin = rawUpperBin != null && trackedUpperBin != null
+          ? Math.max(rawUpperBin, trackedUpperBin)
+          : rawUpperBin ?? trackedUpperBin ?? null;
         const activeBin = binData?.poolActiveBinId ?? tracked?.bin_range?.active ?? null;
         const lpData = lpAgentByPosition[positionAddress] || null;
+        const rawInRange = binData ? !binData.isOutOfRange : !isOOR;
+        const bufferedRightInRange = Boolean(
+          binData &&
+          activeBin != null &&
+          lowerBin != null &&
+          upperBin != null &&
+          activeBin >= lowerBin &&
+          activeBin <= upperBin
+        );
+        const managementInRange = rawInRange || bufferedRightInRange;
+
+        if (managementInRange) markInRange(positionAddress);
+        else markOutOfRange(positionAddress);
 
         const ageFromState = tracked?.deployed_at
           ? Math.floor((Date.now() - new Date(tracked.deployed_at).getTime()) / 60000)
@@ -1291,9 +1305,11 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           base_mint:          pool.tokenXMint,
           lower_bin:          lowerBin,
           upper_bin:          upperBin,
+          raw_upper_bin:      rawUpperBin,
           active_bin:         activeBin,
           bin_step:           tracked?.bin_step ?? null,
-          in_range:           binData ? !binData.isOutOfRange : !isOOR,
+          in_range:           managementInRange,
+          raw_in_range:       rawInRange,
           unclaimed_fees_usd: lpData
             ? Math.round((
                 config.management.solMode
