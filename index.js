@@ -27,7 +27,7 @@ import {
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
-import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
+import { recordPositionSnapshot, recallForPool, addPoolNote, clearAllMemory } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 import { stageSignals } from "./signal-tracker.js";
@@ -1365,6 +1365,7 @@ function formatHelpText() {
     "/briefing — morning briefing",
     "/hive — HiveMind sync status",
     "/hive pull — manual HiveMind pull now",
+    "/clean — clear all pool memory history",
     "/pause — stop cron cycles",
     "/resume — start cron cycles again",
     "/stop — shut down agent",
@@ -1611,6 +1612,16 @@ async function telegramHandler(msg) {
       runScreeningCycle({ silent: true }).catch((e) => log("cron_error", `Auto-screen after closeall failed: ${e.message}`));
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => { });
+    }
+    return;
+  }
+
+  if (text === "/clean") {
+    try {
+      clearAllMemory();
+      await sendMessage("✅ All pool memory (pool-memory.json) has been cleared.").catch(() => { });
+    } catch (e) {
+      await sendMessage(`❌ Error clearing memory: ${e.message}`).catch(() => { });
     }
     return;
   }

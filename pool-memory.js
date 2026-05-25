@@ -36,6 +36,11 @@ function save(data) {
   fs.writeFileSync(POOL_MEMORY_FILE, JSON.stringify(data, null, 2));
 }
 
+export function clearAllMemory() {
+  fs.writeFileSync(POOL_MEMORY_FILE, JSON.stringify({}, null, 2));
+  log("pool-memory", "Cleared all pool memory.");
+}
+
 function isOorCloseReason(reason) {
   const text = String(reason || "").trim().toLowerCase();
   return text === "oor" || text.includes("out of range") || text.includes("oor");
