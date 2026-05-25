@@ -5,12 +5,27 @@ const DATAPI_BASE = "https://datapi.jup.ag/v1";
  * Useful for understanding if a token has a real community/theme vs nothing.
  */
 export async function getTokenNarrative({ mint }) {
-  const res = await fetch(`${DATAPI_BASE}/chaininsight/narrative/${mint}`);
+  const [res, assetRes] = await Promise.all([
+    fetch(`${DATAPI_BASE}/chaininsight/narrative/${mint}`),
+    fetch(`${DATAPI_BASE}/assets/search?query=${mint}`)
+  ]);
+  
   if (!res.ok) throw new Error(`Narrative API error: ${res.status}`);
   const data = await res.json();
+  
+  let twitter = null;
+  if (assetRes.ok) {
+    const assetData = await assetRes.json();
+    const token = Array.isArray(assetData) ? assetData[0] : assetData;
+    if (token && token.twitter) {
+      twitter = token.twitter;
+    }
+  }
+
   return {
     mint,
     narrative: data.narrative || null,
+    twitter: twitter,
     status: data.status,
   };
 }

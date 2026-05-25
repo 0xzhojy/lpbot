@@ -559,10 +559,8 @@ export async function deployPosition({
     );
   }
   if (isSingleSidedSol) {
-    // Apply binsAboveBuffer to extend the tracked range upward without depositing token X.
-    // This raises upper_bin so OOR-right management rules don't fire too early.
-    const buffer = Math.max(0, Math.round(Number(config.strategy.binsAboveBuffer ?? 0)));
-    activeBinsAbove = buffer;
+    // binsAboveBuffer logic removed per user request because it caused tracking issues
+    activeBinsAbove = 0;
   }
   activeBinsBelow = Number(activeBinsBelow);
   activeBinsAbove = Number(activeBinsAbove);

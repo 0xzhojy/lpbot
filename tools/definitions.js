@@ -561,7 +561,7 @@ NOTE: Requires mint address. If you only have a symbol/name, call get_token_info
     function: {
       name: "get_token_narrative",
       description: `Get the narrative or story behind a token from Jupiter ChainInsight.
-Returns a plain-text description of what the token is about — its origin, theme, community, and activity.
+Returns a plain-text description of what the token is about and includes its Twitter URL if available.
 Use during token evaluation to understand if there is a real catalyst driving attention and volume.
 
 GOOD narrative signals (proceed with more confidence):
