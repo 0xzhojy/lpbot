@@ -561,6 +561,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       screenReport = combinedExamples
         ? `No candidates available.\nFiltered examples:\n${combinedExamples}`
         : `No candidates available (all filtered by launchpad / holder-quality rules).`;
+      log("cron", `Screening finished: 0 candidates available. LLM step skipped.`);
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
