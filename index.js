@@ -1576,6 +1576,12 @@ async function telegramHandler(msg) {
         const closeTxs = result.close_txs?.length ? result.close_txs : result.txs;
         const claimNote = result.claim_txs?.length ? `\nClaim txs: ${result.claim_txs.join(", ")}` : "";
         await sendMessage(`✅ Closed ${pos.pair}\nPnL: ${config.management.solMode ? "◎" : "$"}${result.pnl_usd ?? "?"} | close txs: ${closeTxs?.join(", ") || "n/a"}${claimNote}`);
+
+        // Automatically trigger screening if we now have room
+        const { total_positions } = await getMyPositions({ force: true });
+        if (total_positions < config.risk.maxPositions) {
+          runScreeningCycle({ silent: true }).catch((e) => log("cron_error", `Auto-screen after close failed: ${e.message}`));
+        }
       } else {
         await sendMessage(`❌ Close failed: ${JSON.stringify(result)}`);
       }
@@ -1598,6 +1604,9 @@ async function telegramHandler(msg) {
         }
       }
       await sendMessage(`Close-all finished.\n\n${results.join("\n")}`).catch(() => { });
+
+      // Automatically trigger screening since all positions are closed
+      runScreeningCycle({ silent: true }).catch((e) => log("cron_error", `Auto-screen after closeall failed: ${e.message}`));
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => { });
     }
