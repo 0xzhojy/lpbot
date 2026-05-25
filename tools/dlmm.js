@@ -25,7 +25,7 @@ import {
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
-import { normalizeMint } from "./wallet.js";
+import { getWalletBalances, normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { agentMeridianJson, getAgentIdForRequests, getAgentMeridianHeaders } from "./agent-meridian.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
@@ -104,6 +104,16 @@ function shouldUseLpAgentRelay() {
 function shouldUseLpAgentRelayForDeploy() {
   // Zap-in relay is intentionally disabled; deploys use the local Meteora SDK path.
   return false;
+}
+
+async function resolveInitialValueUsd(amountY, providedValue) {
+  const wallet = await getWalletBalances().catch(() => null);
+  const solPrice = maybeNum(wallet?.sol_price);
+  if (solPrice != null && solPrice > 0) return roundNum(Number(amountY) * solPrice, 4);
+
+  const provided = maybeNum(providedValue);
+  if (provided != null && provided > 0) return roundNum(provided, 4);
+  return null;
 }
 
 function signSerializedTransaction(serialized, wallet) {
@@ -620,6 +630,7 @@ export async function deployPosition({
   // Read base fee directly from pool — baseFactor * binStep / 10^6 gives fee in %
   const baseFactor = pool.lbPair.parameters?.baseFactor ?? 0;
   const actualBaseFee = base_fee ?? (baseFactor > 0 ? parseFloat((baseFactor * actualBinStep / 1e6 * 100).toFixed(4)) : null);
+  const resolvedInitialValueUsd = await resolveInitialValueUsd(finalAmountY, initial_value_usd);
 
   const totalYLamports = new BN(Math.floor(finalAmountY * 1e9));
   // Token X amount uses mint decimals when available, falling back to 9.
@@ -708,7 +719,7 @@ export async function deployPosition({
           amount_sol: finalAmountY,
           amount_x: finalAmountX,
           active_bin: activeBin.binId,
-          initial_value_usd,
+          initial_value_usd: resolvedInitialValueUsd,
           signal_snapshot: signalSnapshot,
         });
       }
@@ -846,7 +857,7 @@ export async function deployPosition({
       amount_sol: finalAmountY,
       amount_x: finalAmountX,
       active_bin: activeBin.binId,
-      initial_value_usd,
+      initial_value_usd: resolvedInitialValueUsd,
       signal_snapshot: signalSnapshot,
     });
 
@@ -1037,6 +1048,14 @@ function maybeNum(value) {
   if (value == null || value === "") return null;
   const n = parseFloat(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
 }
 
 function roundNum(value, decimals = 4) {
@@ -1237,6 +1256,16 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
         const ageFromState = tracked?.deployed_at
           ? Math.floor((Date.now() - new Date(tracked.deployed_at).getTime()) / 60000)
           : null;
+        const initialValue = roundNum(firstPositiveNumber(
+          config.management.solMode ? lpData?.inputNative : lpData?.inputValue,
+          config.management.solMode ? binData?.allTimeDeposits?.total?.sol : binData?.allTimeDeposits?.total?.usd,
+          config.management.solMode ? tracked?.amount_sol : tracked?.initial_value_usd,
+        ), 4) || null;
+        const initialValueTrueUsd = roundNum(firstPositiveNumber(
+          lpData?.inputValue,
+          binData?.allTimeDeposits?.total?.usd,
+          tracked?.initial_value_usd,
+        ), 4) || null;
         const reportedPnlPct = lpData
           ? parseFloat(config.management.solMode ? (lpData.pnl?.percentNative || 0) : (lpData.pnl?.percent || 0))
           : binData
@@ -1263,6 +1292,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           lower_bin:          lowerBin,
           upper_bin:          upperBin,
           active_bin:         activeBin,
+          bin_step:           tracked?.bin_step ?? null,
           in_range:           binData ? !binData.isOutOfRange : !isOOR,
           unclaimed_fees_usd: lpData
             ? Math.round((
@@ -1296,6 +1326,8 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
             : binData
             ? Math.round(parseFloat(binData.unrealizedPnl?.balances || 0) * 10000) / 10000
             : null,
+          initial_value_usd: initialValue,
+          initial_value_true_usd: initialValueTrueUsd,
           collected_fees_usd: lpData
             ? Math.round((
                 config.management.solMode
@@ -1334,6 +1366,32 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
             ? Math.round(safeNum(lpData.unCollectedFee) * 10000) / 10000
             : binData
             ? Math.round((parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)) * 10000) / 10000
+            : null,
+          total_fees_usd: lpData
+            ? Math.round((
+                config.management.solMode
+                  ? safeNum(lpData.collectedFeeNative) + safeNum(lpData.unCollectedFeeNative)
+                  : safeNum(lpData.collectedFee) + safeNum(lpData.unCollectedFee)
+              ) * 10000) / 10000
+            : binData
+            ? Math.round((
+                config.management.solMode
+                  ? parseFloat(binData.allTimeFees?.total?.sol || 0) +
+                    parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.amountSol || 0) +
+                    parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.amountSol || 0)
+                  : parseFloat(binData.allTimeFees?.total?.usd || 0) +
+                    parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) +
+                    parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
+              ) * 10000) / 10000
+            : null,
+          total_fees_true_usd: lpData
+            ? Math.round((safeNum(lpData.collectedFee) + safeNum(lpData.unCollectedFee)) * 10000) / 10000
+            : binData
+            ? Math.round((
+                parseFloat(binData.allTimeFees?.total?.usd || 0) +
+                parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) +
+                parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
+              ) * 10000) / 10000
             : null,
           fee_per_tvl_24h:    binData
             ? Math.round(parseFloat(binData.feePerTvl24h || 0) * 100) / 100

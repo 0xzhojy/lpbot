@@ -111,6 +111,70 @@ function sanitizeUntrustedPromptText(text, maxLen = 500) {
   return cleaned ? JSON.stringify(cleaned) : null;
 }
 
+function finiteNumber(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatPct(value, decimals = 1) {
+  const n = finiteNumber(value);
+  return n == null ? "?" : `${n.toFixed(decimals)}%`;
+}
+
+function formatBinRangeProgress(position) {
+  const lower = finiteNumber(position.lower_bin);
+  const upper = finiteNumber(position.upper_bin);
+  const active = finiteNumber(position.active_bin);
+  if (lower == null || upper == null || active == null || upper <= lower) return "?";
+
+  const totalBins = upper - lower;
+  const offsetBins = active - lower;
+  const pct = (offsetBins / totalBins) * 100;
+  const outside = active < lower
+    ? `, ${Math.round(lower - active)} below`
+    : active > upper
+    ? `, ${Math.round(active - upper)} above`
+    : "";
+  const binStep = finiteNumber(position.bin_step);
+  const widthPct = binStep != null && binStep > 0
+    ? `; width ${formatPct((Math.pow(1 + binStep / 10000, totalBins) - 1) * 100)}`
+    : "";
+
+  return `active ${formatPct(pct)} (${Math.round(offsetBins)}/${Math.round(totalBins)} bins${outside}${widthPct})`;
+}
+
+function deriveFeeEarnedPct(position) {
+  const direct = finiteNumber(position.fee_earned_pct);
+  if (direct != null) return direct;
+
+  const feesTrueUsd = finiteNumber(position.total_fees_true_usd);
+  const initialTrueUsd = finiteNumber(position.initial_value_true_usd);
+  if (feesTrueUsd != null && initialTrueUsd != null && initialTrueUsd > 0) {
+    return (feesTrueUsd / initialTrueUsd) * 100;
+  }
+
+  const fees = finiteNumber(position.total_fees_usd);
+  const initial = finiteNumber(position.initial_value_usd);
+  if (fees != null && initial != null && initial > 0) {
+    return (fees / initial) * 100;
+  }
+
+  return null;
+}
+
+function formatFeeTargetProgress(position, managementConfig) {
+  const targetPct = finiteNumber(managementConfig.takeProfitPct);
+  const earnedPct = deriveFeeEarnedPct(position);
+  if (targetPct == null || targetPct <= 0) {
+    return earnedPct == null ? "target off" : `${formatPct(earnedPct)} (target off)`;
+  }
+  if (earnedPct == null) return `?/${formatPct(targetPct)}`;
+
+  const progressPct = (earnedPct / targetPct) * 100;
+  return `${formatPct(earnedPct)}/${formatPct(targetPct)} (${formatPct(progressPct)})`;
+}
+
 function shouldUsePnlRecheck() {
   return !config.api.lpAgentRelayEnabled;
 }
@@ -288,6 +352,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       const unclaimed = config.management.solMode ? `◎${p.unclaimed_fees_usd ?? "?"}` : `$${p.unclaimed_fees_usd ?? "?"}`;
       const statusLabel = act.action === "INSTRUCTION" ? "HOLD (instruction)" : act.action;
       let line = `**${p.pair}** | Age: ${p.age_minutes ?? "?"}m | Val: ${val} | Unclaimed: ${unclaimed} | PnL: ${p.pnl_pct ?? "?"}% | Yield: ${p.fee_per_tvl_24h ?? "?"}% | ${inRange} | ${statusLabel}`;
+      line += `\nRange bins: ${formatBinRangeProgress(p)} | Fee target: ${formatFeeTargetProgress(p, config.management)}`;
       if (p.instruction) line += `\nNote: "${p.instruction}"`;
       if (act.action === "CLOSE" && act.rule === "exit") line += `\n⚡ Trailing TP: ${act.reason}`;
       if (act.action === "CLOSE" && act.rule && act.rule !== "exit") line += `\nRule ${act.rule}: ${act.reason}`;
@@ -321,6 +386,7 @@ export async function runManagementCycle({ silent = false } = {}) {
           `  action: ${act.action}${act.rule && act.rule !== "exit" ? ` — Rule ${act.rule}: ${act.reason}` : ""}${act.rule === "exit" ? ` — ⚡ Trailing TP: ${act.reason}` : ""}`,
           `  pnl_pct: ${p.pnl_pct}% | unclaimed_fees: ${cur}${p.unclaimed_fees_usd} | value: ${cur}${p.total_value_usd} | fee_per_tvl_24h: ${p.fee_per_tvl_24h ?? "?"}%`,
           `  bins: lower=${p.lower_bin} upper=${p.upper_bin} active=${p.active_bin} | oor_minutes: ${p.minutes_out_of_range ?? 0}`,
+          `  range_bins_progress: ${formatBinRangeProgress(p)} | fee_target_progress: ${formatFeeTargetProgress(p, config.management)}`,
           p.instruction ? `  instruction: "${p.instruction}"` : null,
         ].filter(Boolean).join("\n");
       }).join("\n\n");
@@ -1369,7 +1435,6 @@ async function deployLatestCandidate(index) {
     volatility: candidate.volatility,
     fee_tvl_ratio: candidate.fee_active_tvl_ratio ?? candidate.fee_tvl_ratio,
     organic_score: candidate.organic_score,
-    initial_value_usd: candidate.tvl ?? candidate.active_tvl ?? null,
   });
   if (result?.success === false || result?.error) {
     throw new Error(result.error || "Deploy failed");
@@ -1485,7 +1550,9 @@ async function telegramHandler(msg) {
         `Pool: ${pos.pool}`,
         `Position: ${pos.position}`,
         `Range: ${pos.lower_bin} → ${pos.upper_bin} | active ${pos.active_bin}`,
+        `Range bins: ${formatBinRangeProgress(pos)}`,
         `PnL: ${pos.pnl_pct ?? "?"}% | fees: ${config.management.solMode ? "◎" : "$"}${pos.unclaimed_fees_usd ?? "?"}`,
+        `Fee target: ${formatFeeTargetProgress(pos, config.management)}`,
         `Value: ${config.management.solMode ? "◎" : "$"}${pos.total_value_usd ?? "?"}`,
         `Age: ${pos.age_minutes ?? "?"}m | ${pos.in_range ? "IN RANGE" : `OOR ${pos.minutes_out_of_range ?? 0}m`}`,
         pos.instruction ? `Note: ${pos.instruction}` : null,
