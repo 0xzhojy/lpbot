@@ -21,6 +21,7 @@ import {
   editMessageWithButtons,
   answerCallbackQuery,
   notifyOutOfRange,
+  notifyClose,
   isEnabled as telegramEnabled,
   createLiveMessage,
 } from "./telegram.js";
@@ -855,6 +856,21 @@ Summarize the current portfolio health, total fees earned, and performance of al
             if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
               scheduleTrailingDropConfirmation(p.position);
             }
+            continue;
+          }
+          if (exit.action === "TAKE_PROFIT") {
+            log("state", `[PnL poll] INSTANT EXIT: ${p.pair} — ${exit.reason}`);
+            // execute close directly without LLM
+            closePosition({ position_address: p.position, reason: exit.reason })
+              .then((res) => {
+                 if (res.success) {
+                   notifyClose({ pair: p.pair, pnlUsd: res.pnl_usd ?? 0, pnlPct: res.pnl_pct ?? 0, reason: exit.reason }).catch(()=>{});
+                   if (res.base_mint) {
+                     executeTool("swap_token", { input_mint: res.base_mint, output_mint: "SOL", amount: 999999999 }).catch(()=>{}); // The executor checks balance automatically
+                   }
+                 }
+              })
+              .catch((e) => log("close_error", `Instant close failed for ${p.pair}: ${e.message}`));
             continue;
           }
           const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;

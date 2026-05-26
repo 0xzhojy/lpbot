@@ -411,6 +411,24 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   if (changed) save(state);
 
+  // ── Take Profit ────────────────────────────────────────────────
+  if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.takeProfitPct != null && currentPnlPct >= mgmtConfig.takeProfitPct) {
+    return {
+      action: "TAKE_PROFIT",
+      reason: `Take profit: PnL ${currentPnlPct.toFixed(2)}% >= ${mgmtConfig.takeProfitPct}%`,
+    };
+  }
+  const tpUsd = mgmtConfig.takeProfitUsd;
+  if (tpUsd != null && tpUsd > 0 && positionData.pnl_usd != null && positionData.unclaimed_fees_usd != null) {
+    const combinedUsd = positionData.pnl_usd + positionData.unclaimed_fees_usd;
+    if (combinedUsd >= tpUsd) {
+      return {
+        action: "TAKE_PROFIT",
+        reason: `Take profit: combined USD $${combinedUsd.toFixed(4)} >= $${tpUsd}`,
+      };
+    }
+  }
+
   // ── Stop loss ──────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
     return {
