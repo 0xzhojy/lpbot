@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 const DATAPI_BASE = "https://datapi.jup.ag/v1";
 
 /**
@@ -55,6 +56,7 @@ export async function getTokenInfo({ query }) {
     launchpad: t.launchpad,
     graduated: !!t.graduatedPool,
     global_fees_sol: t.fees != null ? parseFloat(t.fees.toFixed(2)) : null,
+    fees_pass_gate: t.fees != null ? (parseFloat(t.fees.toFixed(2)) >= config.screening.minTokenFeesSol) : false,
     audit: t.audit ? {
       mint_disabled: t.audit.mintAuthorityDisabled,
       freeze_disabled: t.audit.freezeAuthorityDisabled,
@@ -204,6 +206,7 @@ export async function getTokenHolders({ mint, limit = 20 }) {
   return {
     mint,
     global_fees_sol: tokenInfo?.fees != null ? parseFloat(tokenInfo.fees.toFixed(2)) : null,
+    fees_pass_gate: tokenInfo?.fees != null ? (parseFloat(tokenInfo.fees.toFixed(2)) >= config.screening.minTokenFeesSol) : false,
     total_fetched: holders.length,
     showing: mapped.length,
     top_10_real_holders_pct: top10Pct.toFixed(2),

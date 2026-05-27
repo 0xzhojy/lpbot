@@ -545,8 +545,7 @@ is_pool=true means it's a liquidity pool address, not a real holder — filter t
 
 Also returns global_fees_sol — total priority/jito tips paid by ALL traders on this token (NOT Meteora LP fees).
 This is a key signal: low global_fees_sol means transactions are bundled or the token is a scam.
-HARD GATE: SKIP deployment ONLY if global_fees_sol is BELOW config.screening.minTokenFeesSol (current: ${config.screening.minTokenFeesSol}).
-A token with global_fees_sol=97 and minTokenFeesSol=${config.screening.minTokenFeesSol} PASSES (97 > ${config.screening.minTokenFeesSol}). A token with global_fees_sol=12 FAILS (12 < ${config.screening.minTokenFeesSol}).
+HARD GATE: SKIP deployment ONLY if fees_pass_gate is false. Tokens with fees_pass_gate=true PASS this gate. (The minimum required is ${config.screening.minTokenFeesSol} SOL).
 
 NOTE: Requires mint address. If you only have a symbol/name, call get_token_info first to resolve the mint.`,
       parameters: {
