@@ -432,6 +432,9 @@ const toolMap = {
       rsiOversold: ["indicators", "rsiOversold", ["chartIndicators", "rsiOversold"]],
       rsiOverbought: ["indicators", "rsiOverbought", ["chartIndicators", "rsiOverbought"]],
       requireAllIntervals: ["indicators", "requireAllIntervals", ["chartIndicators", "requireAllIntervals"]],
+      singleSideSolEntryCandleGuard: ["indicators", "singleSideSolEntryCandleGuard", ["chartIndicators", "singleSideSolEntryCandleGuard"]],
+      singleSideSolEntryCandleIntervals: ["indicators", "singleSideSolEntryCandleIntervals", ["chartIndicators", "singleSideSolEntryCandleIntervals"]],
+      singleSideSolEntryRequireAllIntervals: ["indicators", "singleSideSolEntryRequireAllIntervals", ["chartIndicators", "singleSideSolEntryRequireAllIntervals"]],
     };
 
     const applied = {};

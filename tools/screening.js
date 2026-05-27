@@ -3,7 +3,7 @@ import { isBlacklisted } from "../token-blacklist.js";
 import { isDevBlocked, getBlockedDevs } from "../dev-blocklist.js";
 import { log } from "../logger.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
-import { confirmIndicatorPreset } from "./chart-indicators.js";
+import { confirmIndicatorPreset, confirmSingleSideSolEntryCandle } from "./chart-indicators.js";
 import { getAgentMeridianBase, getAgentMeridianHeaders } from "./agent-meridian.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
@@ -750,6 +750,33 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     eligible.splice(0, eligible.length, ...confirmedEligible);
     if (eligible.length < before) {
       log("screening", `Indicator confirmation removed ${before - eligible.length} candidate(s)`);
+    }
+  }
+
+  if (config.indicators.singleSideSolEntryCandleGuard && eligible.length > 0) {
+    const confirmations = [];
+    for (const pool of eligible) {
+      const confirmation = await confirmSingleSideSolEntryCandle({
+        mint: pool.base?.mint,
+      });
+      confirmations.push({ pool: pool.pool, confirmation });
+      await new Promise((r) => setTimeout(r, 200)); // Delay to avoid 429s
+    }
+
+    const confirmationByPool = new Map(confirmations.map((entry) => [entry.pool, entry.confirmation]));
+    const before = eligible.length;
+    const confirmedEligible = eligible.filter((pool) => {
+      const confirmation = confirmationByPool.get(pool.pool);
+      pool.single_side_sol_entry_candle = confirmation || null;
+      if (confirmation?.confirmed) return true;
+      const reason = confirmation?.reason || "waiting for red/down candle";
+      pushFilteredReason(filteredOut, pool, `single-side SOL entry reject: ${reason}`);
+      log("screening", `Single-side SOL entry guard rejected ${pool.name} (${pool.pool.slice(0, 8)}): ${reason}`);
+      return false;
+    });
+    eligible.splice(0, eligible.length, ...confirmedEligible);
+    if (eligible.length < before) {
+      log("screening", `Single-side SOL entry candle guard removed ${before - eligible.length} candidate(s)`);
     }
   }
 

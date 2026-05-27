@@ -26,8 +26,11 @@ function buildSignalSummary(payload) {
   const supertrend = latest?.supertrend || {};
   const fibonacciLevels = latest?.fibonacci?.levels || {};
   return {
-    close: safeNum(candle.close),
-    previousClose: safeNum(previousCandle.close),
+    open: safeNum(candle.open ?? candle.o),
+    high: safeNum(candle.high ?? candle.h),
+    low: safeNum(candle.low ?? candle.l),
+    close: safeNum(candle.close ?? candle.c),
+    previousClose: safeNum(previousCandle.close ?? previousCandle.c),
     rsi,
     lowerBand: safeNum(bollinger.lower),
     middleBand: safeNum(bollinger.middle),
@@ -202,6 +205,33 @@ function evaluatePreset(side, preset, payload) {
   }
 }
 
+function evaluateRedDownCandle(payload) {
+  const summary = buildSignalSummary(payload);
+  const open = summary.open;
+  const close = summary.close;
+  const previousClose = summary.previousClose;
+  const isRed = open != null && close != null && close < open;
+  const isDown = close != null && previousClose != null ? close <= previousClose : isRed;
+  const direction = isRed ? "red" : open != null && close != null && close > open ? "green" : "flat";
+
+  return {
+    confirmed: isRed && isDown,
+    reason: open == null || close == null
+      ? "Latest candle open/close unavailable"
+      : `Latest candle is ${direction}: open ${open}, close ${close}${previousClose != null ? `, previous close ${previousClose}` : ""}`,
+    signal: {
+      open,
+      high: summary.high,
+      low: summary.low,
+      close,
+      previousClose,
+      direction,
+      red: isRed,
+      down: isDown,
+    },
+  };
+}
+
 async function fetchChartIndicatorsForMint(
   mint,
   {
@@ -222,6 +252,78 @@ async function fetchChartIndicatorsForMint(
   return agentMeridianJson(`/chart-indicators/${mint}?${search.toString()}`, {
     headers: getAgentMeridianHeaders(),
   });
+}
+
+export async function confirmSingleSideSolEntryCandle({
+  mint,
+  intervals = config.indicators.singleSideSolEntryCandleIntervals || config.indicators.intervals,
+  refresh = false,
+} = {}) {
+  if (!config.indicators.singleSideSolEntryCandleGuard) {
+    return { enabled: false, confirmed: true, reason: "Single-side SOL candle guard disabled", intervals: [] };
+  }
+
+  if (!mint) {
+    return { enabled: true, confirmed: false, reason: "Missing mint for single-side SOL candle guard", intervals: [] };
+  }
+
+  const targets = normalizeIntervals(intervals);
+  if (targets.length === 0) {
+    return { enabled: true, confirmed: false, reason: "No candle intervals configured for single-side SOL entry guard", intervals: [] };
+  }
+
+  const results = [];
+  for (const interval of targets) {
+    try {
+      const payload = await fetchChartIndicatorsForMint(mint, { interval, refresh });
+      const evaluation = evaluateRedDownCandle(payload);
+      results.push({
+        interval,
+        ok: true,
+        confirmed: !!evaluation.confirmed,
+        reason: evaluation.reason,
+        signal: evaluation.signal,
+        latest: payload?.latest || null,
+      });
+    } catch (error) {
+      log("indicators_warn", `Single-side SOL candle guard failed for ${mint.slice(0, 8)} ${interval}: ${error.message}`);
+      results.push({
+        interval,
+        ok: false,
+        confirmed: null,
+        reason: error.message,
+        signal: null,
+        latest: null,
+      });
+    }
+  }
+
+  const successful = results.filter((entry) => entry.ok);
+  if (successful.length === 0) {
+    return {
+      enabled: true,
+      confirmed: false,
+      skipped: true,
+      reason: "Candle guard unavailable; refusing single-side SOL entry",
+      intervals: results,
+    };
+  }
+
+  const requireAll = config.indicators.singleSideSolEntryRequireAllIntervals ?? true;
+  const confirmed = requireAll
+    ? successful.every((entry) => entry.confirmed)
+    : successful.some((entry) => entry.confirmed);
+
+  return {
+    enabled: true,
+    confirmed,
+    skipped: false,
+    requireAllIntervals: requireAll,
+    reason: confirmed
+      ? `Red/down candle confirmed on ${successful.filter((entry) => entry.confirmed).map((entry) => entry.interval).join(", ")}`
+      : `Waiting for red/down candle; latest was not red/down on ${successful.map((entry) => entry.interval).join(", ")}`,
+    intervals: results,
+  };
 }
 
 export async function confirmIndicatorPreset({

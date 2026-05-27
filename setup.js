@@ -441,6 +441,12 @@ const userConfig = {
   ...(llmApiKey ? { llmApiKey } : {}),
   telegramChatId: telegramChatId || "",
   dryRun,
+  chartIndicators: {
+    ...(existingConfig.chartIndicators || {}),
+    singleSideSolEntryCandleGuard: existingConfig.chartIndicators?.singleSideSolEntryCandleGuard ?? true,
+    singleSideSolEntryCandleIntervals: existingConfig.chartIndicators?.singleSideSolEntryCandleIntervals || existingConfig.chartIndicators?.intervals || ["5_MINUTE"],
+    singleSideSolEntryRequireAllIntervals: existingConfig.chartIndicators?.singleSideSolEntryRequireAllIntervals ?? true,
+  },
 };
 
 // Remove legacy key if present

@@ -96,7 +96,10 @@
     "candles": 298,
     "rsiOversold": 30,
     "rsiOverbought": 80,
-    "requireAllIntervals": false
+    "requireAllIntervals": false,
+    "singleSideSolEntryCandleGuard": true,
+    "singleSideSolEntryCandleIntervals": ["5_MINUTE"],
+    "singleSideSolEntryRequireAllIntervals": true
   },
   "telegramChatId": "",
   "hiveMindUrl": "",

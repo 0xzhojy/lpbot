@@ -140,6 +140,7 @@ HARD RULES:
 - Range must cover at least 35 total bins. Never deploy 1-bin/tiny ranges.
 - For single-side SOL deploys (amount_y only, amount_x=0), do not request upside exposure:
   use bins_below only, keep bins_above=0, and the upper bin will be pinned to the current active bin.
+- For single-side SOL deploys, entry is only allowed on a latest red/down candle and only while active_bin is at or below entry_max_bin when provided. If this guard fails, treat the result as a no-deploy/wait signal.
 
 Guidelines (only when user hasn't specified):
 - Strategy: use the active strategy's lp_strategy field (bid_ask or spot)
@@ -198,6 +199,14 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           indicator_confirmation: {
             type: "object",
             description: "The indicator confirmation object returned by get_top_candidates for this pool. Pass it exactly as received."
+          },
+          single_side_sol_entry_candle: {
+            type: "object",
+            description: "The single-side SOL red/down candle confirmation returned by get_top_candidates. Pass it exactly as received."
+          },
+          entry_max_bin: {
+            type: "number",
+            description: "Optional entry ceiling. For single-side SOL, deploy is refused if the live active bin has moved above this value before execution."
           }
         },
         required: ["pool_address"]

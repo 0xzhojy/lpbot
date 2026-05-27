@@ -449,6 +449,14 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `maxTop10Pct` | `60` | Maximum top-10 holder concentration |
 | `blockedLaunchpads` | `[]` | Launchpad names to never deploy into |
 
+### Entry Timing
+
+| Field | Default | Description |
+|---|---|---|
+| `chartIndicators.singleSideSolEntryCandleGuard` | `true` | For single-side SOL deploys, wait for the latest candle to be red/down before entering |
+| `chartIndicators.singleSideSolEntryCandleIntervals` | `["5_MINUTE"]` | Candle timeframe(s) checked by the single-side SOL entry guard |
+| `chartIndicators.singleSideSolEntryRequireAllIntervals` | `true` | If multiple timeframes are configured, require every one to be red/down |
+
 ### Management
 
 | Field | Default | Description |

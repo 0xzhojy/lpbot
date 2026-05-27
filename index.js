@@ -617,6 +617,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const priceChange = ti?.stats_1h?.price_change;
       const netBuyers = ti?.stats_1h?.net_buyers;
       const activeBin = activeBinResults[i]?.status === "fulfilled" ? activeBinResults[i].value?.binId : null;
+      const entryCandle = pool.single_side_sol_entry_candle;
+      const entryCandleLine = entryCandle
+        ? `  single_side_sol_entry: ${entryCandle.confirmed ? "PASS" : "WAIT"} — ${entryCandle.reason}`
+        : null;
 
       // OKX signals
       const okxParts = [
@@ -651,6 +655,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
         pool.price_vs_ath_pct != null ? `  ath: price_vs_ath=${pool.price_vs_ath_pct}%${pool.top_cluster_trend ? `, top_cluster=${pool.top_cluster_trend}` : ""}` : null,
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
+        activeBin != null ? `  entry_max_bin: ${activeBin}` : null,
+        entryCandleLine,
         priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
         mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
@@ -696,6 +702,8 @@ STEPS:
    pass deploy_position.volatility = the candidate volatility value.
    For single-side SOL deploys, do not invent upside:
    set amount_y only, keep amount_x = 0, keep bins_above = 0, and let the upper bin stay at the active bin.
+   pass single_side_sol_entry_candle exactly from the candidate block.
+   pass entry_max_bin = the candidate active_bin shown above so deploy_position waits if live price already pumped above that bin.
 4. Report in this exact format (no tables, no extra sections):
    🚀 DEPLOYED
 
@@ -1110,6 +1118,7 @@ function formatConfigSnapshot() {
     `Repeat deploy cooldown: ${config.management.repeatDeployCooldownEnabled ? "on" : "off"} | ${config.management.repeatDeployCooldownTriggerCount}x / ${config.management.repeatDeployCooldownHours}h | min fee earned ${config.management.repeatDeployCooldownMinFeeEarnedPct}% | ${config.management.repeatDeployCooldownScope}`,
     `Yield floor: ${config.management.minFeePerTvl24h}% | min age ${config.management.minAgeBeforeYieldCheck}m`,
     `Screening: ${config.screening.category} / ${config.screening.timeframe} | TVL ${config.screening.minTvl}-${config.screening.maxTvl}`,
+    `Single-side SOL entry: ${config.indicators.singleSideSolEntryCandleGuard ? "red/down candle" : "off"} | ${fmtSettingValue(config.indicators.singleSideSolEntryCandleIntervals)}`,
     `Intervals: manage ${config.schedule.managementIntervalMin}m | screen ${config.schedule.screeningIntervalMin}m`,
     `HiveMind: ${isHiveMindEnabled() ? "enabled" : "disabled"}${config.hiveMind.agentId ? ` | ${config.hiveMind.agentId}` : ""}`,
   ].join("\n");
@@ -1132,6 +1141,7 @@ function settingValue(key) {
     solMode: config.management.solMode,
     lpAgentRelayEnabled: config.api.lpAgentRelayEnabled,
     chartIndicatorsEnabled: config.indicators.enabled,
+    singleSideSolEntryCandleGuard: config.indicators.singleSideSolEntryCandleGuard,
     trailingTakeProfit: config.management.trailingTakeProfit,
     useDiscordSignals: config.screening.useDiscordSignals,
     blockPvpSymbols: config.screening.blockPvpSymbols,
@@ -1157,7 +1167,9 @@ function settingValue(key) {
     indicatorExitPreset: config.indicators.exitPreset,
     rsiLength: config.indicators.rsiLength,
     indicatorIntervals: config.indicators.intervals,
+    singleSideSolEntryCandleIntervals: config.indicators.singleSideSolEntryCandleIntervals,
     requireAllIntervals: config.indicators.requireAllIntervals,
+    singleSideSolEntryRequireAllIntervals: config.indicators.singleSideSolEntryRequireAllIntervals,
   };
   return values[key];
 }
@@ -1195,6 +1207,7 @@ function renderSettingsMenu(page = "main") {
     `Strategy: ${config.strategy.strategy} | bins ${config.strategy.minBinsBelow}-${config.strategy.maxBinsBelow} | deploy ${config.management.deployAmountSol} SOL`,
     `TP/SL: ${config.management.takeProfitPct}% / ${config.management.stopLossPct}% | trailing ${config.management.trailingTakeProfit ? "on" : "off"}`,
     `Indicators: ${config.indicators.enabled ? "on" : "off"} | entry ${config.indicators.entryPreset} | ${fmtSettingValue(config.indicators.intervals)}`,
+    `Single-side SOL entry: ${config.indicators.singleSideSolEntryCandleGuard ? "red/down candle" : "off"} | ${fmtSettingValue(config.indicators.singleSideSolEntryCandleIntervals)}`,
   ].join("\n");
 
   const nav = [
@@ -1246,10 +1259,16 @@ function renderSettingsMenu(page = "main") {
   } else if (page === "indicators") {
     rows = [
       [toggleButton("chartIndicatorsEnabled", "Chart indicators"), toggleButton("requireAllIntervals", "Require all TF")],
+      [toggleButton("singleSideSolEntryCandleGuard", "SOL red candle"), toggleButton("singleSideSolEntryRequireAllIntervals", "SOL all TF")],
       [
         settingButton("TF: 5m", "cfg:set:indicatorIntervals:5_MINUTE"),
         settingButton("TF: 15m", "cfg:set:indicatorIntervals:15_MINUTE"),
         settingButton("TF: both", "cfg:set:indicatorIntervals:both"),
+      ],
+      [
+        settingButton("SOL TF: 5m", "cfg:set:singleSideSolEntryCandleIntervals:5_MINUTE"),
+        settingButton("SOL TF: 15m", "cfg:set:singleSideSolEntryCandleIntervals:15_MINUTE"),
+        settingButton("SOL TF: both", "cfg:set:singleSideSolEntryCandleIntervals:both"),
       ],
       [
         settingButton("Entry: ST", "cfg:set:indicatorEntryPreset:supertrend_break"),
@@ -1291,7 +1310,7 @@ async function showSettingsMenu({ messageId = null, page = "main" } = {}) {
 }
 
 function normalizeMenuValue(key, raw) {
-  if (key === "indicatorIntervals") {
+  if (key === "indicatorIntervals" || key === "singleSideSolEntryCandleIntervals") {
     if (raw === "both") return ["5_MINUTE", "15_MINUTE"];
     return [raw];
   }
@@ -1359,7 +1378,7 @@ async function applySettingsMenuCallback(msg) {
     await answerCallbackQuery(msg.callbackQueryId, "Config update failed");
     return;
   }
-  page = key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals"
+  page = key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals" || key.startsWith("singleSideSolEntry")
     ? "indicators"
     : ["useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)
       ? "screen"
@@ -1449,6 +1468,7 @@ async function deployLatestCandidate(index) {
   }
   const deployAmount = computeDeployAmount((await getWalletBalances()).sol);
   const binsBelow = computeBinsBelow(candidate.volatility);
+  const activeBin = await getActiveBin({ pool_address: candidate.pool });
   const result = await executeTool("deploy_position", {
     pool_address: candidate.pool,
     amount_y: deployAmount,
@@ -1462,6 +1482,8 @@ async function deployLatestCandidate(index) {
     volatility: candidate.volatility,
     fee_tvl_ratio: candidate.fee_active_tvl_ratio ?? candidate.fee_tvl_ratio,
     organic_score: candidate.organic_score,
+    single_side_sol_entry_candle: candidate.single_side_sol_entry_candle,
+    entry_max_bin: activeBin?.binId,
   });
   if (result?.success === false || result?.error) {
     throw new Error(result.error || "Deploy failed");
