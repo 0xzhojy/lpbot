@@ -194,9 +194,28 @@ export async function swapToken({
   }
 
   try {
-    log("swap", `${amount} of ${input_mint} → ${output_mint}`);
     const wallet = getWallet();
     const connection = getConnection();
+
+    // ─── Auto-clamp amount to actual on-chain balance ─────────
+    // Prevents "Insufficient funds" when caller (LLM/legacy path) passes a
+    // value larger than the real balance (e.g. 999999999 sentinel). Native SOL
+    // is left untouched because gas/rent math depends on the requested value.
+    if (input_mint !== config.tokens.SOL) {
+      try {
+        const { balance } = await getOnChainTokenBalanceAndPrice(input_mint);
+        if (balance > 0 && Number.isFinite(amount) && amount > balance) {
+          log("swap", `Clamping ${amount} → ${balance} (on-chain balance) for ${input_mint.slice(0, 8)}`);
+          amount = balance;
+        } else if (!(balance > 0)) {
+          log("swap_warn", `No on-chain balance for ${input_mint.slice(0, 8)} — swap will likely fail`);
+        }
+      } catch (e) {
+        log("swap_warn", `Balance pre-check failed for ${input_mint.slice(0, 8)}: ${e.message}`);
+      }
+    }
+
+    log("swap", `${amount} of ${input_mint} → ${output_mint}`);
 
     // ─── Convert to smallest unit ──────────────────────────────
     let decimals = 9; // SOL default
