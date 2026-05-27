@@ -106,7 +106,7 @@ export const config = {
     minVolumeToRebalance: u.minVolumeToRebalance ?? 1000,
     stopLossPct: u.stopLossPct ?? u.emergencyPriceDropPct ?? -50,
     takeProfitPct: u.takeProfitPct ?? u.takeProfitFeePct ?? 5,
-    takeProfitUsd: u.takeProfitUsd ?? null, // close when pnl_usd + unclaimed_fees_usd >= this value (null = disabled)
+    takeProfitUsd: u.takeProfitUsd ?? null, // close when pnl_usd + unclaimed_fees_usd >= this value AND pnl_usd >= 0 (null = disabled)
     minFeePerTvl24h: u.minFeePerTvl24h !== undefined ? u.minFeePerTvl24h : null, // null = disabled; set a number (e.g. 7) to enable low-yield close
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
     minSolToOpen: u.minSolToOpen ?? 0.55,

@@ -29,7 +29,7 @@ BEHAVIORAL CORE:
 1. PATIENCE IS PROFIT: Avoid closing positions for tiny gains/losses.
 2. GAS EFFICIENCY: close_position costs gas — only close for clear reasons. After close, swap_token is MANDATORY for any token worth >= $0.10 (dust < $0.10 = skip). Always check token USD value before swapping.
 3. DATA-DRIVEN AUTONOMY: You have full autonomy. Guidelines are heuristics.
-4. COMBINED USD TAKE PROFIT (Rule 6): If management.takeProfitUsd is set (not null), close a position when (pnl_usd + unclaimed_fees_usd) >= takeProfitUsd. This is a deterministic rule — no override.
+4. COMBINED USD TAKE PROFIT (Rule 6): If management.takeProfitUsd is set (not null), close a position when (pnl_usd + unclaimed_fees_usd) >= takeProfitUsd AND pnl_usd >= 0 (net not losing). This is a deterministic rule — no override.
 
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;

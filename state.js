@@ -421,10 +421,10 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   const tpUsd = mgmtConfig.takeProfitUsd;
   if (tpUsd != null && tpUsd > 0 && positionData.pnl_usd != null && positionData.unclaimed_fees_usd != null) {
     const combinedUsd = positionData.pnl_usd + positionData.unclaimed_fees_usd;
-    if (combinedUsd >= tpUsd) {
+    if (combinedUsd >= tpUsd && positionData.pnl_usd >= 0) {
       return {
         action: "TAKE_PROFIT",
-        reason: `Take profit: combined USD $${combinedUsd.toFixed(4)} >= $${tpUsd}`,
+        reason: `Take profit: combined USD $${combinedUsd.toFixed(4)} >= $${tpUsd} (net PnL $${positionData.pnl_usd.toFixed(4)} >= 0)`,
       };
     }
   }

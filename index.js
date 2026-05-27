@@ -1043,11 +1043,11 @@ function getDeterministicCloseRule(position, managementConfig) {
     position.unclaimed_fees_usd != null
   ) {
     const combinedUsd = position.pnl_usd + position.unclaimed_fees_usd;
-    if (combinedUsd >= tpUsd) {
+    if (combinedUsd >= tpUsd && position.pnl_usd >= 0) {
       return {
         action: "CLOSE",
         rule: 6,
-        reason: `combined USD target reached ($${combinedUsd.toFixed(4)} >= $${tpUsd})`,
+        reason: `combined USD target reached ($${combinedUsd.toFixed(4)} >= $${tpUsd}, net PnL $${position.pnl_usd.toFixed(4)} >= 0)`,
       };
     }
   }
