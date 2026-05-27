@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
-import { getWalletBalances } from "./tools/wallet.js";
+import { getWalletBalances, swapToken, getOnChainTokenBalanceAndPrice } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
@@ -860,13 +860,21 @@ Summarize the current portfolio health, total fees earned, and performance of al
           }
           if (exit.action === "TAKE_PROFIT") {
             log("state", `[PnL poll] INSTANT EXIT: ${p.pair} — ${exit.reason}`);
-            // execute close directly without LLM
             closePosition({ position_address: p.position, reason: exit.reason })
-              .then((res) => {
+              .then(async (res) => {
                  if (res.success) {
                    notifyClose({ pair: p.pair, pnlUsd: res.pnl_usd ?? 0, pnlPct: res.pnl_pct ?? 0, reason: exit.reason }).catch(()=>{});
                    if (res.base_mint) {
-                     executeTool("swap_token", { input_mint: res.base_mint, output_mint: "SOL", amount: 999999999 }).catch(()=>{}); // The executor checks balance automatically
+                     try {
+                       await new Promise((r) => setTimeout(r, 2000));
+                       const { balance, usdValue } = await getOnChainTokenBalanceAndPrice(res.base_mint);
+                       if (balance > 0 && usdValue >= 0.10) {
+                         log("state", `[PnL poll] Auto-swapping ${res.base_mint.slice(0, 8)} (bal: ${balance}, ~$${usdValue.toFixed(2)}) back to SOL`);
+                         await swapToken({ input_mint: res.base_mint, output_mint: "SOL", amount: balance });
+                       }
+                     } catch (e) {
+                       log("close_error", `Instant auto-swap failed for ${p.pair}: ${e.message}`);
+                     }
                    }
                  }
               })

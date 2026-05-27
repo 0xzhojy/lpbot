@@ -614,15 +614,18 @@ export async function executeTool(name, args) {
         // Auto-swap base token back to SOL unless user said to hold
         if (!args.skip_swap && result.base_mint) {
           try {
-            const balances = await getWalletBalances({});
-            const token = balances.tokens?.find(t => t.mint === result.base_mint);
-            if (token && token.usd >= 0.10) {
-              log("executor", `Auto-swapping ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
-              const swapResult = await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
+            // Wait 2s to allow Solana network to settle the token transfer before checking on-chain balance
+            await new Promise((r) => setTimeout(r, 2000));
+            const { balance, usdValue } = await getOnChainTokenBalanceAndPrice(result.base_mint);
+            if (balance > 0 && usdValue >= 0.10) {
+              log("executor", `Auto-swapping ${result.base_mint.slice(0, 8)} (bal: ${balance}, ~$${usdValue.toFixed(2)}) back to SOL`);
+              const swapResult = await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: balance });
               // Tell the model the swap already happened so it doesn't call swap_token again
               result.auto_swapped = true;
-              result.auto_swap_note = `Base token already auto-swapped back to SOL (${token.symbol || result.base_mint.slice(0, 8)} → SOL). Do NOT call swap_token again.`;
+              result.auto_swap_note = `Base token already auto-swapped back to SOL (${result.base_mint.slice(0, 8)} → SOL). Do NOT call swap_token again.`;
               if (swapResult?.amount_out) result.sol_received = swapResult.amount_out;
+            } else {
+              log("executor", `Skipped auto-swap: balance=${balance} (usd=${usdValue.toFixed(2)}) < $0.10`);
             }
           } catch (e) {
             log("executor_warn", `Auto-swap after close failed: ${e.message}`);
@@ -630,11 +633,11 @@ export async function executeTool(name, args) {
         }
       } else if (name === "claim_fees" && config.management.autoSwapAfterClaim && result.base_mint) {
         try {
-          const balances = await getWalletBalances({});
-          const token = balances.tokens?.find(t => t.mint === result.base_mint);
-          if (token && token.usd >= 0.10) {
-            log("executor", `Auto-swapping claimed ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
-            await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
+          await new Promise((r) => setTimeout(r, 2000));
+          const { balance, usdValue } = await getOnChainTokenBalanceAndPrice(result.base_mint);
+          if (balance > 0 && usdValue >= 0.10) {
+            log("executor", `Auto-swapping claimed ${result.base_mint.slice(0, 8)} (bal: ${balance}, ~$${usdValue.toFixed(2)}) back to SOL`);
+            await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: balance });
           }
         } catch (e) {
           log("executor_warn", `Auto-swap after claim failed: ${e.message}`);

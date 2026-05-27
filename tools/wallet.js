@@ -53,6 +53,41 @@ function getJupiterReferralParams() {
 }
 
 /**
+ * Get current on-chain token balance and live Jupiter price (bypasses Helius indexing delay).
+ * Used immediately after closePosition to ensure accurate swap amounts.
+ */
+export async function getOnChainTokenBalanceAndPrice(mint) {
+  let balance = 0;
+  let usdValue = 0;
+  let price = 0;
+  try {
+    const wallet = getWallet();
+    const connection = getConnection();
+    const mintPubkey = new PublicKey(mint);
+    
+    // Fetch exact on-chain balance
+    const response = await connection.getParsedTokenAccountsByOwner(wallet.publicKey, { mint: mintPubkey });
+    for (const accountInfo of response.value) {
+      const amount = Number(accountInfo.account.data.parsed.info.tokenAmount.uiAmount);
+      if (amount && amount > 0) balance += amount;
+    }
+    
+    // Fetch live price if we have a balance
+    if (balance > 0) {
+      const priceRes = await fetch(`${JUPITER_PRICE_API}?ids=${mint}`);
+      if (priceRes.ok) {
+        const priceData = await priceRes.json();
+        price = Number(priceData?.data?.[mint]?.price || 0);
+        usdValue = balance * price;
+      }
+    }
+  } catch (error) {
+    log("wallet_error", `getOnChainTokenBalanceAndPrice failed: ${error.message}`);
+  }
+  return { balance, usdValue, price };
+}
+
+/**
  * Get current wallet balances: SOL, USDC, and all SPL tokens using Helius Wallet API.
  * Returns USD-denominated values provided by Helius.
  */
