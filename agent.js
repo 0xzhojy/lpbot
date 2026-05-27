@@ -91,13 +91,31 @@ import { getStateSummary } from "./state.js";
 import { getLessonsForPrompt, getPerformanceSummary } from "./lessons.js";
 import { getDecisionSummary } from "./decision-log.js";
 
-// Supports OpenRouter (default) or any OpenAI-compatible local server (e.g. LM Studio)
-// To use LM Studio: set LLM_BASE_URL=http://localhost:1234/v1 and LLM_API_KEY=lm-studio in .env
-const client = new OpenAI({
-  baseURL: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-  apiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY,
-  timeout: 5 * 60 * 1000,
-});
+// Supports OpenRouter (default) or any OpenAI-compatible provider (e.g. genfity, LM Studio).
+// Per-role overrides via config.llm.{management,screening,general}{BaseUrl,ApiKey} take
+// precedence over global LLM_BASE_URL / LLM_API_KEY. Falls back to OpenRouter defaults.
+const DEFAULT_BASE_URL = process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1";
+const DEFAULT_API_KEY = process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY;
+
+const clientCache = new Map();
+function getClient(baseURL, apiKey) {
+  const url = baseURL || DEFAULT_BASE_URL;
+  const key = apiKey || DEFAULT_API_KEY;
+  const cacheKey = `${url}|${key || ""}`;
+  let c = clientCache.get(cacheKey);
+  if (!c) {
+    c = new OpenAI({ baseURL: url, apiKey: key, timeout: 5 * 60 * 1000 });
+    clientCache.set(cacheKey, c);
+  }
+  return c;
+}
+
+function getProviderForRole(agentType) {
+  const llm = config.llm || {};
+  if (agentType === "MANAGER")  return { baseURL: llm.managementBaseUrl, apiKey: llm.managementApiKey };
+  if (agentType === "SCREENER") return { baseURL: llm.screeningBaseUrl,  apiKey: llm.screeningApiKey };
+  return { baseURL: llm.generalBaseUrl, apiKey: llm.generalApiKey };
+}
 
 const DEFAULT_MODEL = process.env.LLM_MODEL || "openrouter/healer-alpha";
 
@@ -186,6 +204,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
     try {
       const activeModel = model || DEFAULT_MODEL;
+      const provider = getProviderForRole(agentType);
+      const client = getClient(provider.baseURL, provider.apiKey);
 
       // Retry up to 3 times on transient provider errors (502, 503, 529)
       const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";

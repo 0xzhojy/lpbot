@@ -436,6 +436,28 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, reason }) {
   );
 }
 
+export async function notifyChartIndicators({ pair, mint }) {
+  if (hasActiveLiveMessage()) return;
+  if (!mint) return;
+  try {
+    const { confirmSingleSideSolEntryCandle } = await import("./tools/chart-indicators.js");
+    const res = await confirmSingleSideSolEntryCandle({ mint });
+    if (!res?.enabled) return;
+    const lines = (res.intervals || []).map((entry) => {
+      if (!entry.ok) return `${entry.interval}: ERR ${entry.reason?.slice(0, 40) || ""}`;
+      const s = entry.signal || {};
+      const dir = s.direction ? s.direction.toUpperCase() : "?";
+      const mark = entry.confirmed ? "✓" : "✗";
+      const closeStr = s.close != null ? (s.close < 0.0001 ? s.close.toExponential(2) : s.close.toFixed(6)) : "?";
+      return `${entry.interval}: ${dir} ${mark} | close ${closeStr}`;
+    });
+    const header = res.confirmed ? "📊 <b>Chart guard OK</b>" : "📊 <b>Chart guard</b>";
+    await sendHTML(`${header} ${pair || ""}\n${lines.join("\n") || res.reason || "no data"}`);
+  } catch (error) {
+    log?.("telegram", `notifyChartIndicators failed: ${error.message}`);
+  }
+}
+
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
   if (hasActiveLiveMessage()) return;
   await sendHTML(

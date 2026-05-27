@@ -569,7 +569,9 @@ export async function deployPosition({
   }
 
   if (isSingleSidedSol && config.indicators.singleSideSolEntryCandleGuard) {
-    const guardMint = base_mint || resolvedBaseMint;
+    // Always use on-chain resolved mint — LLM-provided base_mint can be a symbol like "Ebola"
+    // which crashes the chart-indicators endpoint with "Mint is required".
+    const guardMint = resolvedBaseMint;
     const candleConfirmation = await confirmSingleSideSolEntryCandle({ mint: guardMint, refresh: true });
     if (!candleConfirmation?.confirmed) {
       const reason = candleConfirmation?.reason || "Waiting for red/down candle";

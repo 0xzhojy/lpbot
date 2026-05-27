@@ -266,6 +266,10 @@ export async function confirmSingleSideSolEntryCandle({
   if (!mint) {
     return { enabled: true, confirmed: false, reason: "Missing mint for single-side SOL candle guard", intervals: [] };
   }
+  // Sanity-check mint format (base58 ~32-44 chars). Reject obvious non-mints like "Ebola".
+  if (typeof mint !== "string" || mint.length < 32 || mint.length > 44 || !/^[1-9A-HJ-NP-Za-km-z]+$/.test(mint)) {
+    return { enabled: true, confirmed: false, reason: `Invalid mint format for candle guard: "${String(mint).slice(0, 16)}"`, intervals: [] };
+  }
 
   const targets = normalizeIntervals(intervals);
   if (targets.length === 0) {
