@@ -419,12 +419,11 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     };
   }
   const tpUsd = mgmtConfig.takeProfitUsd;
-  if (tpUsd != null && tpUsd > 0 && positionData.pnl_usd != null && positionData.unclaimed_fees_usd != null) {
-    const combinedUsd = positionData.pnl_usd + positionData.unclaimed_fees_usd;
-    if (combinedUsd >= tpUsd && positionData.pnl_usd >= 0) {
+  if (tpUsd != null && tpUsd > 0 && positionData.pnl_usd != null) {
+    if (positionData.pnl_usd >= tpUsd) {
       return {
         action: "TAKE_PROFIT",
-        reason: `Take profit: combined USD $${combinedUsd.toFixed(4)} >= $${tpUsd} (net PnL $${positionData.pnl_usd.toFixed(4)} >= 0)`,
+        reason: `Take profit: net profit $${positionData.pnl_usd.toFixed(4)} >= $${tpUsd}`,
       };
     }
   }

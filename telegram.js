@@ -436,6 +436,54 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, reason }) {
   );
 }
 
+export async function notifyManagementSnapshot({ positions }) {
+  if (hasActiveLiveMessage()) return;
+  if (!positions || positions.length === 0) return;
+  try {
+    const { fetchChartIndicatorsForMint } = await import("./tools/chart-indicators.js");
+    const lines = [];
+    for (const p of positions) {
+      const mint = p.base_mint || p.token_x_mint;
+      const pair = p.pair || p.pool_name || (p.pool ? p.pool.slice(0, 8) : "?");
+      if (!mint || typeof mint !== "string" || mint.length < 32 || mint.length > 44) {
+        lines.push(`<b>${pair}</b> — mint unavailable`);
+        continue;
+      }
+      try {
+        const payload = await fetchChartIndicatorsForMint(mint, { interval: "5_MINUTE" });
+        const latest = payload?.latest || {};
+        const c = latest.candle || {};
+        const prev = latest.previousCandle || {};
+        const rsi = latest.rsi?.value;
+        const supertrend = latest.supertrend || {};
+        const open = Number(c.open ?? c.o);
+        const close = Number(c.close ?? c.c);
+        const prevClose = Number(prev.close ?? prev.c);
+        const color = (Number.isFinite(open) && Number.isFinite(close))
+          ? (close > open ? "🟢 GREEN" : close < open ? "🔴 RED" : "⚪ FLAT")
+          : "?";
+        const changePct = (Number.isFinite(close) && Number.isFinite(prevClose) && prevClose !== 0)
+          ? (((close - prevClose) / prevClose) * 100).toFixed(2) + "%"
+          : "?";
+        const rsiStr = Number.isFinite(rsi) ? rsi.toFixed(1) : "?";
+        const stDir = supertrend.direction || "?";
+        const pnlStr = p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${Number(p.pnl_pct).toFixed(2)}%` : "?";
+        const inRangeStr = p.in_range === false ? "OOR" : "in-range";
+        lines.push(
+          `<b>${pair}</b> [${inRangeStr} | PnL ${pnlStr}]\n` +
+          `5m: ${color} | Δ ${changePct} | RSI=${rsiStr} | ST: ${stDir}`,
+        );
+      } catch (e) {
+        lines.push(`<b>${pair}</b> — chart fetch failed: ${e.message.slice(0, 60)}`);
+      }
+    }
+    if (lines.length === 0) return;
+    await sendHTML(`📈 <b>Snapshot (5m)</b>\n${lines.join("\n\n")}`);
+  } catch (error) {
+    log?.("telegram", `notifyManagementSnapshot failed: ${error.message}`);
+  }
+}
+
 export async function notifyChartIndicators({ pair, mint }) {
   if (hasActiveLiveMessage()) return;
   if (!mint) return;

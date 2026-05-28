@@ -21,6 +21,7 @@ import {
   editMessageWithButtons,
   answerCallbackQuery,
   notifyOutOfRange,
+  notifyManagementSnapshot,
   notifyClose,
   isEnabled as telegramEnabled,
   createLiveMessage,
@@ -437,6 +438,9 @@ After executing, write a brief one-line result per position.
         if (!p.in_range && p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {
           notifyOutOfRange({ pair: p.pair, minutesOOR: p.minutes_out_of_range }).catch(() => { });
         }
+      }
+      if (positions.length > 0) {
+        notifyManagementSnapshot({ positions }).catch(() => { });
       }
     }
   }
@@ -1034,20 +1038,18 @@ function getDeterministicCloseRule(position, managementConfig) {
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
   }
-  // Rule 6: combined USD take profit (pnl + unclaimed fees >= target)
+  // Rule 6: USD take profit (pnl_usd already includes IL + fees)
   const tpUsd = managementConfig.takeProfitUsd;
   if (
     tpUsd != null &&
     tpUsd > 0 &&
-    position.pnl_usd != null &&
-    position.unclaimed_fees_usd != null
+    position.pnl_usd != null
   ) {
-    const combinedUsd = position.pnl_usd + position.unclaimed_fees_usd;
-    if (combinedUsd >= tpUsd && position.pnl_usd >= 0) {
+    if (position.pnl_usd >= tpUsd) {
       return {
         action: "CLOSE",
         rule: 6,
-        reason: `combined USD target reached ($${combinedUsd.toFixed(4)} >= $${tpUsd}, net PnL $${position.pnl_usd.toFixed(4)} >= 0)`,
+        reason: `USD take profit reached (PnL $${position.pnl_usd.toFixed(4)} >= $${tpUsd})`,
       };
     }
   }
@@ -1273,7 +1275,7 @@ function renderSettingsMenu(page = "main") {
       [
         settingButton("Entry: ST", "cfg:set:indicatorEntryPreset:supertrend_break"),
         settingButton("Entry: RSI", "cfg:set:indicatorEntryPreset:rsi_reversal"),
-        settingButton("Entry: ST/RSI", "cfg:set:indicatorEntryPreset:supertrend_or_rsi"),
+        settingButton("Entry: RSI+ST", "cfg:set:indicatorEntryPreset:rsi_plus_supertrend"),
       ],
       [
         settingButton("Exit: ST", "cfg:set:indicatorExitPreset:supertrend_break"),

@@ -211,8 +211,8 @@ export const config = {
       ? indicatorUserConfig.intervals
       : ["5_MINUTE"],
     candles: indicatorUserConfig.candles ?? 298,
-    rsiOversold: indicatorUserConfig.rsiOversold ?? 30,
-    rsiOverbought: indicatorUserConfig.rsiOverbought ?? 80,
+    rsiOversold: indicatorUserConfig.rsiOversold ?? 10,
+    rsiOverbought: indicatorUserConfig.rsiOverbought ?? 90,
     requireAllIntervals: indicatorUserConfig.requireAllIntervals ?? false,
     singleSideSolEntryCandleGuard: indicatorUserConfig.singleSideSolEntryCandleGuard ?? true,
     singleSideSolEntryCandleIntervals: Array.isArray(indicatorUserConfig.singleSideSolEntryCandleIntervals)

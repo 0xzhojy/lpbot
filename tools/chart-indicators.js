@@ -5,6 +5,9 @@ import { safeNumber } from "../utils/number.js";
 
 const DEFAULT_INTERVALS = ["5_MINUTE"];
 const DEFAULT_CANDLES = 298;
+const DEFAULT_RSI_LENGTH = 2;
+const DEFAULT_RSI_OVERSOLD = 10;
+const DEFAULT_RSI_OVERBOUGHT = 90;
 
 function normalizeIntervals(intervals) {
   const list = Array.isArray(intervals) ? intervals : DEFAULT_INTERVALS;
@@ -47,15 +50,19 @@ function buildSignalSummary(payload) {
 
 function evaluatePreset(side, preset, payload) {
   const summary = buildSignalSummary(payload);
-  const oversold = Number(config.indicators.rsiOversold ?? 30);
-  const overbought = Number(config.indicators.rsiOverbought ?? 80);
+  const oversold = Number(config.indicators.rsiOversold ?? DEFAULT_RSI_OVERSOLD);
+  const overbought = Number(config.indicators.rsiOverbought ?? DEFAULT_RSI_OVERBOUGHT);
   const close = summary.close;
   const previousClose = summary.previousClose;
   const lowerBand = summary.lowerBand;
   const upperBand = summary.upperBand;
   const rsi = summary.rsi;
+  const rsiIsOversold = rsi != null && rsi <= oversold;
+  const rsiIsOverbought = rsi != null && rsi >= overbought;
   const isBullish = summary.supertrendDirection === "bullish";
   const isBearish = summary.supertrendDirection === "bearish";
+  const bullishSupertrend = summary.supertrendBreakUp || isBullish;
+  const bearishSupertrend = summary.supertrendBreakDown || isBearish;
   const crossedUp = (level) =>
     level != null &&
     close != null &&
@@ -85,13 +92,17 @@ function evaluatePreset(side, preset, payload) {
     case "rsi_reversal":
       return side === "entry"
         ? {
-          confirmed: rsi != null && rsi <= oversold,
-          reason: `RSI ${rsi ?? "n/a"} <= oversold ${oversold}`,
+          confirmed: rsiIsOversold,
+          reason: rsiIsOversold
+            ? `RSI ${rsi} <= oversold ${oversold}; price has pulled back enough for a bounce setup`
+            : `RSI ${rsi ?? "n/a"} is not <= oversold ${oversold}; waiting for a deeper pullback`,
           signal: summary,
         }
         : {
-          confirmed: rsi != null && rsi >= overbought,
-          reason: `RSI ${rsi ?? "n/a"} >= overbought ${overbought}`,
+          confirmed: rsiIsOverbought,
+          reason: rsiIsOverbought
+            ? `RSI ${rsi} >= overbought ${overbought}; short-term momentum is stretched upward`
+            : `RSI ${rsi ?? "n/a"} is not >= overbought ${overbought}; waiting for stronger exit signal`,
           signal: summary,
         };
     case "bollinger_reversion":
@@ -109,17 +120,17 @@ function evaluatePreset(side, preset, payload) {
     case "rsi_plus_supertrend":
       return side === "entry"
         ? {
-          confirmed:
-            (rsi != null && rsi <= oversold) &&
-            (summary.supertrendBreakUp || isBullish),
-          reason: `RSI oversold with bullish Supertrend context`,
+          confirmed: rsiIsOversold && bullishSupertrend,
+          reason: rsiIsOversold && bullishSupertrend
+            ? `RSI ${rsi} <= oversold ${oversold} with bullish Supertrend; strong confluence`
+            : `Needs RSI <= oversold ${oversold} and bullish Supertrend; RSI ${rsi ?? "n/a"}, Supertrend ${summary.supertrendDirection}`,
           signal: summary,
         }
         : {
-          confirmed:
-            (rsi != null && rsi >= overbought) &&
-            (summary.supertrendBreakDown || isBearish),
-          reason: `RSI overbought with bearish Supertrend context`,
+          confirmed: rsiIsOverbought && bearishSupertrend,
+          reason: rsiIsOverbought && bearishSupertrend
+            ? `RSI ${rsi} >= overbought ${overbought} with bearish Supertrend; strong exit confluence`
+            : `Needs RSI >= overbought ${overbought} and bearish Supertrend; RSI ${rsi ?? "n/a"}, Supertrend ${summary.supertrendDirection}`,
           signal: summary,
         };
     case "supertrend_or_rsi":
@@ -232,12 +243,12 @@ function evaluateRedDownCandle(payload) {
   };
 }
 
-async function fetchChartIndicatorsForMint(
+export async function fetchChartIndicatorsForMint(
   mint,
   {
     interval,
     candles = config.indicators.candles ?? DEFAULT_CANDLES,
-    rsiLength = config.indicators.rsiLength ?? 2,
+    rsiLength = config.indicators.rsiLength ?? DEFAULT_RSI_LENGTH,
     refresh = false,
   } = {},
 ) {
