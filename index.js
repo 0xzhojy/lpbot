@@ -60,12 +60,24 @@ const DEPLOY = config.management.deployAmountSol;
 const timers = {
   managementLastRun: null,
   screeningLastRun: null,
+  healthLastRun: null,
 };
 
 function nextRunIn(lastRun, intervalMin) {
   if (!lastRun) return intervalMin * 60;
   const elapsed = (Date.now() - lastRun) / 1000;
   return Math.max(0, intervalMin * 60 - elapsed);
+}
+
+function cycleDue(lastRun, intervalMin) {
+  if (!lastRun) return true;
+  return Date.now() - lastRun >= Math.max(1, intervalMin) * 60 * 1000;
+}
+
+function seedCycleTimers(now = Date.now()) {
+  timers.managementLastRun = now;
+  timers.screeningLastRun = now;
+  timers.healthLastRun = now;
 }
 
 function formatCountdown(seconds) {
@@ -76,6 +88,7 @@ function formatCountdown(seconds) {
 }
 
 function buildPrompt() {
+  if (!cronStarted) return "[paused]\n> ";
   const mgmt = formatCountdown(nextRunIn(timers.managementLastRun, config.schedule.managementIntervalMin));
   const scrn = formatCountdown(nextRunIn(timers.screeningLastRun, config.schedule.screeningIntervalMin));
   return `[manage: ${mgmt} | screen: ${scrn}]\n> `;
@@ -182,10 +195,12 @@ function shouldUsePnlRecheck() {
 }
 
 function schedulePeakConfirmation(positionAddress) {
+  if (!cronStarted) return;
   if (!positionAddress || _peakConfirmTimers.has(positionAddress)) return;
 
   const timer = setTimeout(async () => {
     _peakConfirmTimers.delete(positionAddress);
+    if (!cronStarted) return;
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       const position = result?.positions?.find((p) => p.position === positionAddress);
@@ -199,10 +214,12 @@ function schedulePeakConfirmation(positionAddress) {
 }
 
 function scheduleTrailingDropConfirmation(positionAddress) {
+  if (!cronStarted) return;
   if (!positionAddress || _trailingDropConfirmTimers.has(positionAddress)) return;
 
   const timer = setTimeout(async () => {
     _trailingDropConfirmTimers.delete(positionAddress);
+    if (!cronStarted) return;
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       const position = result?.positions?.find((p) => p.position === positionAddress);
@@ -260,9 +277,17 @@ function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
   _cronTasks = [];
+  for (const timer of _peakConfirmTimers.values()) clearTimeout(timer);
+  for (const timer of _trailingDropConfirmTimers.values()) clearTimeout(timer);
+  _peakConfirmTimers.clear();
+  _trailingDropConfirmTimers.clear();
 }
 
-export async function runManagementCycle({ silent = false } = {}) {
+export async function runManagementCycle({ silent = false, force = false } = {}) {
+  if (!force && !cronStarted) {
+    log("cron", "Management skipped — autonomous cycles paused");
+    return null;
+  }
   if (_managementBusy) return null;
   _managementBusy = true;
   timers.managementLastRun = Date.now();
@@ -447,7 +472,11 @@ After executing, write a brief one-line result per position.
   return mgmtReport;
 }
 
-export async function runScreeningCycle({ silent = false } = {}) {
+export async function runScreeningCycle({ silent = false, force = false } = {}) {
+  if (!force && !cronStarted) {
+    log("cron", "Screening skipped — autonomous cycles paused");
+    return null;
+  }
   if (_screeningBusy) {
     log("cron", "Screening skipped — previous cycle still running");
     return null;
@@ -809,18 +838,24 @@ IMPORTANT:
 
 export function startCronJobs() {
   stopCronJobs(); // stop any running tasks before (re)starting
+  cronStarted = true;
 
-  const mgmtTask = cron.schedule(`*/${Math.max(1, config.schedule.managementIntervalMin)} * * * *`, async () => {
+  const mgmtTask = cron.schedule(`* * * * *`, async () => {
     if (_managementBusy) return;
-    timers.managementLastRun = Date.now();
+    if (!cycleDue(timers.managementLastRun, config.schedule.managementIntervalMin)) return;
     await runManagementCycle();
   });
 
-  const screenTask = cron.schedule(`*/${Math.max(1, config.schedule.screeningIntervalMin)} * * * *`, runScreeningCycle);
+  const screenTask = cron.schedule(`* * * * *`, async () => {
+    if (!cycleDue(timers.screeningLastRun, config.schedule.screeningIntervalMin)) return;
+    await runScreeningCycle();
+  });
 
-  const healthTask = cron.schedule(`0 * * * *`, async () => {
+  const healthTask = cron.schedule(`* * * * *`, async () => {
     if (_managementBusy) return;
+    if (!cycleDue(timers.healthLastRun, config.schedule.healthCheckIntervalMin)) return;
     _managementBusy = true;
+    timers.healthLastRun = Date.now();
     log("cron", "Starting health check");
     try {
       await agentLoop(`
@@ -848,6 +883,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;
   const pnlPollInterval = setInterval(async () => {
+    if (!cronStarted) return;
     if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
     if (getTrackedPositions(true).length === 0) return;
     _pnlPollBusy = true;
@@ -1530,6 +1566,28 @@ async function telegramHandler(msg) {
     await showSettingsMenu().catch((e) => sendMessage(`Settings error: ${e.message}`).catch(() => { }));
     return;
   }
+  if (text === "/pause") {
+    const cleared = _telegramQueue.length;
+    _telegramQueue.length = 0;
+    cronStarted = false;
+    stopCronJobs();
+    refreshPrompt();
+    await sendMessage(`⏸ Paused autonomous cycles.${cleared ? ` Cleared ${cleared} queued Telegram command(s).` : ""} Telegram control still works. Use /resume to start again.`).catch(() => { });
+    return;
+  }
+
+  if (text === "/resume") {
+    if (!cronStarted) {
+      seedCycleTimers();
+      startCronJobs();
+      refreshPrompt();
+      await sendMessage("▶️ Autonomous cycles resumed. Next cycles wait for the configured intervals.").catch(() => { });
+    } else {
+      await sendMessage("Autonomous cycles are already running.").catch(() => { });
+    }
+    return;
+  }
+
   if (_managementBusy || _screeningBusy || busy) {
     if (_telegramQueue.length < 5) {
       _telegramQueue.push(msg);
@@ -1744,26 +1802,6 @@ async function telegramHandler(msg) {
     return;
   }
 
-  if (text === "/pause") {
-    stopCronJobs();
-    cronStarted = false;
-    await sendMessage("⏸ Paused autonomous cycles. Telegram control still works. Use /resume to start again.").catch(() => { });
-    return;
-  }
-
-  if (text === "/resume") {
-    if (!cronStarted) {
-      cronStarted = true;
-      timers.managementLastRun = Date.now();
-      timers.screeningLastRun = Date.now();
-      startCronJobs();
-      await sendMessage("▶️ Autonomous cycles resumed.").catch(() => { });
-    } else {
-      await sendMessage("Autonomous cycles are already running.").catch(() => { });
-    }
-    return;
-  }
-
   if (text === "/hive" || text === "/hive pull") {
     try {
       const enabled = isHiveMindEnabled();
@@ -1915,10 +1953,8 @@ if (isMain && isTTY) {
 
   function launchCron() {
     if (!cronStarted) {
-      cronStarted = true;
       // Seed timers so countdown starts from now
-      timers.managementLastRun = Date.now();
-      timers.screeningLastRun = Date.now();
+      seedCycleTimers();
       startCronJobs();
       console.log("Autonomous cycles are now running.\n");
       rl.setPrompt(buildPrompt());
@@ -2044,6 +2080,28 @@ Commands:
 
     // ── Slash commands ───────────────────────
     if (input === "/stop") { await shutdown("user command"); return; }
+
+    if (input === "/pause") {
+      cronStarted = false;
+      stopCronJobs();
+      console.log("\nPaused autonomous cycles. Manual commands still work. Use /resume to start again.\n");
+      rl.setPrompt(buildPrompt());
+      rl.prompt();
+      return;
+    }
+
+    if (input === "/resume") {
+      if (!cronStarted) {
+        seedCycleTimers();
+        startCronJobs();
+        console.log("\nAutonomous cycles resumed. Next cycles wait for the configured intervals.\n");
+      } else {
+        console.log("\nAutonomous cycles are already running.\n");
+      }
+      rl.setPrompt(buildPrompt());
+      rl.prompt();
+      return;
+    }
 
     if (input === "/status") {
       await runBusy(async () => {
