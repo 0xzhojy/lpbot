@@ -203,7 +203,12 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
     try {
-      const activeModel = model || DEFAULT_MODEL;
+      const getModelForRole = (type) => {
+        if (type === "MANAGER") return config.llm.managementModel;
+        if (type === "SCREENER") return config.llm.screeningModel;
+        return config.llm.generalModel;
+      };
+      const activeModel = model || getModelForRole(agentType) || DEFAULT_MODEL;
       const provider = getProviderForRole(agentType);
       const client = getClient(provider.baseURL, provider.apiKey);
 
